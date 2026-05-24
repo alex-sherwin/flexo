@@ -1,5 +1,5 @@
 import { atom } from 'nanostores'
-import type { EditingPart, EulerXYZ, Vec3 } from '../ksa/types'
+import type { EditingPart, EulerXYZ, SubPartPlacement, Vec3 } from '../ksa/types'
 import { createEmptyPart } from '../ksa/types'
 
 /**
@@ -94,6 +94,31 @@ export function addSubPart(templateId: string): void {
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
   })
+  $part.set(part)
+  $selectedIndex.set(part.placements.length - 1)
+}
+
+/**
+ * Imports a whole Part by appending all of its SubPart instances to the current
+ * project, preserving each one's position/rotation/scale. InstanceIds are
+ * regenerated (using the same naming scheme as {@link addSubPart}) so they never
+ * collide with placements already in the project. The last added is selected.
+ */
+export function addPart(placements: readonly SubPartPlacement[]): void {
+  if (placements.length === 0) return
+  pushUndo()
+  const part = clone($part.get())
+  for (const src of placements) {
+    const base = lastSegmentLower(src.subPartTemplateId)
+    const count = part.placements.filter((p) => p.subPartTemplateId === src.subPartTemplateId).length
+    part.placements.push({
+      instanceId: `${base}_${count + 1}`,
+      subPartTemplateId: src.subPartTemplateId,
+      position: { ...src.position },
+      rotation: { ...src.rotation },
+      scale: { ...src.scale },
+    })
+  }
   $part.set(part)
   $selectedIndex.set(part.placements.length - 1)
 }

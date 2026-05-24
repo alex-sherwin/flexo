@@ -29,7 +29,7 @@ export interface CatalogSubPart {
 }
 
 /** Core asset files that declare <SubPart> templates with renderable <PartModel>. */
-const ASSET_FILES = [
+export const ASSET_FILES = [
   'CoreStructuralAAssets.xml',
   'CoreCouplingAAssets.xml',
   'CoreFuelTankAAssets.xml',
@@ -48,7 +48,7 @@ const ASSET_FILES = [
 
 const KSA_BASE = '/ksa/'
 
-function toUrl(relPath: string): string {
+export function toUrl(relPath: string): string {
   return KSA_BASE + relPath.replace(/^\/+/, '')
 }
 

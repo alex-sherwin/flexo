@@ -19,6 +19,7 @@ import {
   type ToolMode,
 } from '../state/editorStore'
 import { AddSubPartButton } from './AddSubPartButton'
+import { AddPartButton } from './AddPartButton'
 import { PartDataButton } from './PartDataButton'
 import { ExportButton } from './ExportButton'
 
@@ -42,6 +43,7 @@ export function EditorToolbar() {
   return (
     <CladdToolbar size="sm">
       <AddSubPartButton />
+      <AddPartButton />
       <PartDataButton />
       <ExportButton />
 

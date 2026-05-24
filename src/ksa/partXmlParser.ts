@@ -30,6 +30,16 @@ export function parsePartPlacements(
   )
   if (!part) throw new Error(`partXmlParser: Part '${partId}' not found`)
 
+  return placementsFromPartElement(part)
+}
+
+/**
+ * Extracts the SubPart instance placements from a single <Part> element. Only
+ * children carrying an InstanceOf are placements (skin/structure metadata
+ * children without it are ignored). Shared by the single-Part parser and the
+ * Part catalog loader.
+ */
+export function placementsFromPartElement(part: Element): SubPartPlacement[] {
   const placements: SubPartPlacement[] = []
   for (const sub of directChildren(part, 'SubPart')) {
     const instanceOf = sub.getAttribute('InstanceOf')
@@ -46,7 +56,7 @@ export function parsePartPlacements(
   return placements
 }
 
-function directChildren(parent: Element, tag: string): Element[] {
+export function directChildren(parent: Element, tag: string): Element[] {
   const out: Element[] = []
   for (const node of Array.from(parent.childNodes)) {
     if (node.nodeType === 1 && (node as Element).tagName === tag) out.push(node as Element)

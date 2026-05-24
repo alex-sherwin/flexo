@@ -3,10 +3,12 @@ import { ViewportCanvas } from './three/ViewportCanvas'
 import { EditorToolbar } from './ui/Toolbar'
 import { RightPanel } from './ui/RightPanel'
 import { ensureCatalogLoaded } from './state/catalogStore'
+import { ensurePartCatalogLoaded } from './state/partCatalogStore'
 
 function App() {
   useEffect(() => {
     void ensureCatalogLoaded()
+    void ensurePartCatalogLoaded()
   }, [])
 
   return (
