@@ -1,5 +1,12 @@
 import { useStore } from '@nanostores/react'
-import { Button, NumberField, Segmented, SegmentedButton, Toolbar as CladdToolbar } from '@cladd-ui/react'
+import {
+  Button,
+  NumberField,
+  Segmented,
+  SegmentedButton,
+  Toolbar as CladdToolbar,
+  ToolbarSeparator,
+} from '@cladd-ui/react'
 import {
   $canRedo,
   $canUndo,
@@ -11,6 +18,9 @@ import {
   undo,
   type ToolMode,
 } from '../state/editorStore'
+import { AddSubPartButton } from './AddSubPartButton'
+import { PartDataButton } from './PartDataButton'
+import { ExportButton } from './ExportButton'
 
 const MODES: { mode: ToolMode; label: string }[] = [
   { mode: 'translate', label: 'Move' },
@@ -31,6 +41,12 @@ export function EditorToolbar() {
 
   return (
     <CladdToolbar size="sm">
+      <AddSubPartButton />
+      <PartDataButton />
+      <ExportButton />
+
+      <ToolbarSeparator />
+
       <Segmented>
         {MODES.map((m) => (
           <SegmentedButton

@@ -1,0 +1,37 @@
+import { useState } from 'react'
+import { useStore } from '@nanostores/react'
+import { Input, Popup, PopupContent, SectionTitle, ToolbarButton } from '@cladd-ui/react'
+import { $part, setPartId } from '../state/editorStore'
+
+/**
+ * Top-surface "Part Data" action: opens a Popup with the Part-level metadata
+ * fields. For now this is just the Part Id; more part metadata will join it here.
+ */
+export function PartDataButton() {
+  const [open, setOpen] = useState(false)
+  const part = useStore($part)
+
+  return (
+    <>
+      <ToolbarButton onClick={() => setOpen(true)}>Part Data</ToolbarButton>
+      <Popup
+        open={open}
+        onOpenChange={setOpen}
+        contentClassName="max-w-md"
+        headerLeft={<span className="px-2 pb-1 text-cladd-sm font-semibold">Part Data</span>}
+      >
+        <PopupContent>
+          <SectionTitle>Part Id</SectionTitle>
+          <Input
+            size="sm"
+            value={part.partId}
+            inputClassName="font-mono"
+            onChange={(v: string) => setPartId(v)}
+            placeholder="part_id"
+            className="mt-2"
+          />
+        </PopupContent>
+      </Popup>
+    </>
+  )
+}
