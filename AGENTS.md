@@ -27,7 +27,7 @@ it's a web based interface that exposes a 3d work area for importing SubParts, a
 
 # technology
 
-- preact for UI framework where needed
+- react for UI framework where needed
 - vite / rolldown for build and packaging tools
 - typescript for language
 - cladd for react ui component framework (use the cladd skill)
