@@ -216,9 +216,9 @@ src/
     TransformGizmo.ts       # wraps three TransformControls (translate/rotate/scale)
     SelectionManager.ts     # raycast pick + selection outline
 
-  state/
-    store.ts                # editor store (Zustand or React context+reducer) = controller
-    useEditor.ts            # hooks bridging store <-> React UI
+  state/                    # framework-agnostic editor state (nanostores, no React/three imports)
+    editorStore.ts          # nanostores atoms/maps + action functions = the controller
+    selectors.ts            # computed() derived stores (selected placement, etc.)
 
   ui/                       # cladd-based React panels
     SubPartBrowser.tsx      # filterable catalog list, click-to-add
@@ -228,11 +228,24 @@ src/
     ExportDialog.tsx        # shows Part XML, copy-to-clipboard
 ```
 
-**Single source of truth principle:** the editor store (`state/store.ts`) owns the
+**Single source of truth principle:** the editor store (`state/editorStore.ts`) owns the
 `EditingPart`. The 3D scene and every UI panel both read/write through it. Gizmo drags and
 numeric-field edits both call the same `updatePlacementTransform(...)` action, so the two views
 stay live-synced (a core requirement). The three.js scene subscribes to store changes and
 reconciles objects; React panels subscribe via hooks.
+
+**React-agnostic core (a deliberate goal).** State is managed with **nanostores** — a tiny
+(~1 KB), framework-agnostic atomic store. This keeps all editor logic (the data model,
+mutations, undo/redo, selection) in plain TypeScript with **zero React or three.js imports**,
+so the core could be reused under Preact/Svelte/Vue/vanilla or driven headlessly in tests. The
+two consumer layers attach without coupling the core to either:
+- **three.js layer** subscribes with vanilla `store.subscribe(cb)` / `store.listen(cb)` (no
+  React involved).
+- **React UI** subscribes with `useStore($store)` from `@nanostores/react`.
+
+Concretely: `src/state/` imports only `nanostores` (and `src/ksa/` types). It must never import
+`react`, `react-dom`, `three`, or `@cladd-ui/react`. Treat that as an architectural invariant
+(a lint rule / review check). See the **nanostores** skill at `.agents/skills/nanostores/`.
 
 ---
 
@@ -247,10 +260,13 @@ full-screen layout (viewport area + placeholder side panel).
    npm install @cladd-ui/react
    npm install -D tailwindcss @tailwindcss/vite
    ```
-   Also add a state lib (recommended **zustand**): `npm install zustand`. (If the team prefers
-   no new dep, use React context + `useReducer`; zustand is recommended for cross-tree
-   subscription from the three.js layer without prop drilling.)
-   Also add `npm install -D @types/node` (already present) for the build script.
+   Add the state libs (**nanostores**, framework-agnostic, + its React binding):
+   ```bash
+   npm install nanostores @nanostores/react
+   ```
+   This is a deliberate choice for a React-agnostic core (see "React-agnostic core" in the
+   Architecture overview). `nanostores` is ESM-only — fine under Vite.
+   `@types/node` is already present for the build script.
 2. Edit `vite.config.ts` to add the Tailwind plugin (keep `react()`):
    ```ts
    import tailwindcss from '@tailwindcss/vite';
@@ -456,19 +472,37 @@ viewport by extracting the named node from its GLB atlas. **Calibrate coordinate
 it appears in the 3D scene at the origin and in a placements list.
 
 ### Steps
-1. `src/state/store.ts` — zustand store mirroring `PartEditorController`:
-   - State: `part: EditingPart`, `selectedIndex: number`, `toolMode: 'translate'|'rotate'|'scale'`,
-     `snap: { translate?: number; rotateDeg?: number }`, undo/redo stacks.
-   - Actions: `addSubPart(templateId)`, `removeSelected()`, `duplicateSelected()`,
+1. `src/state/editorStore.ts` — **nanostores** atoms + action functions mirroring
+   `PartEditorController`. No React/three imports (invariant from the Architecture overview).
+   - Stores (use `atom`; consider `map` only if you want per-key subscriptions):
+     - `$part = atom<EditingPart>({ partId: 'fixme_part_id', placements: [] })`
+     - `$selectedIndex = atom<number>(-1)`
+     - `$toolMode = atom<'translate'|'rotate'|'scale'>('translate')`
+     - `$snap = atom<{ translate?: number; rotateDeg?: number }>({})`
+     - Undo/redo are kept as module-private arrays (not atoms): `undoStack`, `redoStack`, plus
+       `$canUndo`/`$canRedo` atoms updated alongside them for the UI to read.
+   - Treat `$part` as **immutable**: actions build a new `EditingPart` (e.g. via
+     `structuredClone` + edit, or spread) and call `$part.set(next)`. Do not mutate the object
+     held by the atom in place, or `useStore`/`listen` won't fire. (This matters for the
+     two-way binding in Phase 7.)
+   - Action functions (plain exported functions, the nanostores idiom — keep logic in the
+     store, not components):
+     `addSubPart(templateId)`, `removeSelected()`, `duplicateSelected()`,
      `selectPlacement(index)`, `updatePlacementTransform(index, {position,rotation,scale})`,
      `setPartId(id)`, `undo()`, `redo()`, `pushUndo()`.
    - Mirror `AddSubPart` instance-id generation: `baseName = lastDotSegment(templateId).toLowerCase()`,
      count existing of same template, `instanceId = ${baseName}_${count+1}`.
-   - Undo: push deep clone before mutations (`structuredClone`), cap depth 50 (match C#).
-2. `src/three/SceneSync.ts` (or logic inside Viewport): subscribe to the store; on
-   `part.placements` change, reconcile `SubPartObject` groups in the scene (add new, remove
-   gone, update transforms). Keep a `Map<instanceId, Group>`. This is the bridge that keeps 3D
-   in sync with store — **the only place** that mutates scene objects from state.
+   - `pushUndo()`: push a deep clone (`structuredClone($part.get())`) onto `undoStack`, clear
+     `redoStack`, cap depth at 50 (match C#). Call it at the start of each mutating action
+     (and at gizmo drag-start in Phase 6).
+2. `src/state/selectors.ts` — derived stores via `computed`, e.g.
+   `$selectedPlacement = computed([$part, $selectedIndex], (part, i) => part.placements[i] ?? null)`.
+   React panels and the gizmo read this instead of recomputing.
+3. `src/three/SceneSync.ts` (or logic inside Viewport): subscribe to `$part` with the **vanilla**
+   nanostores API — `$part.subscribe(part => reconcile(part))` (no React). On change, reconcile
+   `SubPartObject` groups in the scene (add new, remove gone, update transforms). Keep a
+   `Map<instanceId, Group>`. This is the bridge that keeps 3D in sync with the store — **the only
+   place** that mutates scene objects from state. Hold the unsubscribe fn and call it on dispose.
 3. `src/ui/SubPartBrowser.tsx` (cladd): a floating `Surface` panel with a cladd `SearchField`
    to filter `coreCatalog.json` by id substring, and a cladd `List` of results. Clicking a row
    calls `store.addSubPart(id)`. (Thumbnails are a later nicety — text rows are fine now.)
@@ -589,6 +623,12 @@ can pick them up. Order by likely value:
    Coupling). Port `GameDataModels.cs` + `GameDataXmlSerializer.cs` (D.6).
 4. **Import existing Part** into the editor (port `PartImporter.cs`): pick a Core Part, deep-read
    its SubPart instances + transforms into the store for editing.
+
+> **API convention for the steps below:** with nanostores there is no `store` object — actions
+> are exported functions and state lives in exported atoms. Read the shorthand `store.addSubPart(id)`
+> as "call the exported action `addSubPart(id)` from `editorStore.ts`", and `store.toolMode` /
+> `store.part` as "read the `$toolMode` / `$part` atom" (via `useStore($toolMode)` in React, or
+> `$toolMode.get()` / `.subscribe()` in the three.js layer).
 5. **Project save/load.** Serialize the editor store (`EditingPart`) to a JSON "flexo project"
    file (download/upload, or `localStorage`) per AGENTS.md ("workspace can be serialized and
    saved for restoration as a Part project").
@@ -603,7 +643,7 @@ can pick them up. Order by likely value:
 
 ## Cross-cutting conventions & guardrails
 
-- **Single source of truth:** the zustand store owns `EditingPart`. The three.js `SceneSync` is
+- **Single source of truth:** the nanostores `$part` atom owns `EditingPart`. The three.js `SceneSync` is
   the only writer to scene object transforms from state; gizmo drags and numeric fields both
   write only through `store.updatePlacementTransform`. Never let the 3D layer and UI layer hold
   divergent copies of a placement's transform.
