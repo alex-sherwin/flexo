@@ -151,7 +151,7 @@ describe('editorStore', () => {
 
   it('setPartId reverts under undo when the caller pushed at interaction start', () => {
     // Mirrors PartDataButton: pushUndo() on field focus, setPartId() per keystroke.
-    pushUndo()
+    pushUndo('edit part ID')
     setPartId('p')
     setPartId('part_id')
     expect($part.get().partId).toBe('part_id')

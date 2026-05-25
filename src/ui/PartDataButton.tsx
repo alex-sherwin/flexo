@@ -27,7 +27,7 @@ export function PartDataButton() {
             size="sm"
             value={part.partId}
             inputClassName="font-mono"
-            onFocus={() => pushUndo()}
+            onFocus={() => pushUndo('edit part ID', part.partId)}
             onChange={(v: string) => setPartId(v)}
             placeholder="part_id"
             className="mt-2"

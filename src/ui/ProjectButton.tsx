@@ -56,7 +56,7 @@ export function ProjectButton() {
 
           <div className="mt-3 flex flex-col gap-1.5">
             <Button size="sm" onClick={() => { setPopoverOpen(false); setLoadOpen(true) }}>
-              Load Project…
+              Load Project...
             </Button>
             <Button
               size="sm"

@@ -122,7 +122,17 @@ export class EditorScene {
       this.viewport.controls,
       {
         onDragStart: () => {
-          pushUndo()
+          const mode = $toolMode.get()
+          const desc = mode === 'rotate' ? 'rotate' : mode === 'scale' ? 'scale' : 'move'
+          const p = $part.get()
+          const sel = $selectedIndices.get()
+          const ci = $selectedConnectorIndex.get()
+          const detail = ci >= 0
+            ? (p.connectors[ci]?.id ?? '')
+            : sel.length === 1
+              ? (p.placements[sel[0]]?.instanceId ?? '')
+              : sel.length > 1 ? `${sel.length} parts` : ''
+          pushUndo(desc, detail)
           this.beginBulkDrag()
         },
         onChange: (object) => this.handleGizmoChange(object),

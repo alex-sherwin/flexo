@@ -51,6 +51,31 @@ export const $toolMode = atom<ToolMode>('translate')
 export const $snap = atom<SnapSettings>({})
 export const $canUndo = atom(false)
 export const $canRedo = atom(false)
+/** Description of the action that will be undone next (empty when nothing to undo). */
+export const $undoDescription = atom<string>('')
+/** Description of the action that will be redone next (empty when nothing to redo). */
+export const $redoDescription = atom<string>('')
+
+/** An entry in the undo or redo stack: the document snapshot plus a human-readable label. */
+export interface HistoryEntry {
+  part: EditingPart
+  description: string
+  /** Contextual detail, e.g. entity name, layer name. Empty string if none. */
+  detail: string
+}
+
+/**
+ * One row in the history-list popover.
+ * `stepsFromCurrent < 0` → undo that many steps; `> 0` → redo; `0` → current state.
+ */
+export interface HistoryListItem {
+  description: string
+  detail: string
+  stepsFromCurrent: number
+}
+
+/** All history entries ordered redo-first → current → undo-last, for the history popover. */
+export const $historyList = atom<HistoryListItem[]>([])
 
 /**
  * UNDO/REDO INVARIANT — read this before adding or changing any action.
@@ -79,8 +104,8 @@ export const $canRedo = atom(false)
  * bypasses undo — a bug. Keep docs/editor-state.md and AGENTS.md in sync.
  */
 const MAX_UNDO = 50
-const undoStack: EditingPart[] = []
-const redoStack: EditingPart[] = []
+const undoStack: HistoryEntry[] = []
+const redoStack: HistoryEntry[] = []
 
 function clone(part: EditingPart): EditingPart {
   return structuredClone(part)
@@ -89,6 +114,17 @@ function clone(part: EditingPart): EditingPart {
 function refreshHistoryFlags(): void {
   $canUndo.set(undoStack.length > 0)
   $canRedo.set(redoStack.length > 0)
+  $undoDescription.set(undoStack.at(-1)?.description ?? '')
+  $redoDescription.set(redoStack.at(-1)?.description ?? '')
+  const items: HistoryListItem[] = []
+  for (let i = 0; i < redoStack.length; i++) {
+    items.push({ description: redoStack[i].description, detail: redoStack[i].detail, stepsFromCurrent: redoStack.length - i })
+  }
+  items.push({ description: '', detail: '', stepsFromCurrent: 0 })
+  for (let i = undoStack.length - 1; i >= 0; i--) {
+    items.push({ description: undoStack[i].description, detail: undoStack[i].detail, stepsFromCurrent: -(undoStack.length - i) })
+  }
+  $historyList.set(items)
 }
 
 function clampSelection(): void {
@@ -116,38 +152,42 @@ function currentLayerId(part: EditingPart): string {
   return part.layers.some((l) => l.id === active) ? active : DEFAULT_LAYER_ID
 }
 
-/** Snapshot current state onto the undo stack (call before a mutation). */
-export function pushUndo(): void {
-  undoStack.push(clone($part.get()))
+/** Snapshot current state onto the undo stack before a mutation. `description` labels the action; `detail` adds context (entity name, layer, etc.). */
+export function pushUndo(description: string, detail: string = ''): void {
+  undoStack.push({ part: clone($part.get()), description, detail })
   if (undoStack.length > MAX_UNDO) undoStack.shift()
   redoStack.length = 0
   refreshHistoryFlags()
 }
 
-export function undo(): void {
-  const prev = undoStack.pop()
-  if (!prev) return
-  redoStack.push(clone($part.get()))
-  $part.set(prev)
+/** Undoes the last action. Returns a formatted label (e.g. "move · thruster_1_1") for toast display. */
+export function undo(): string {
+  const entry = undoStack.pop()
+  if (!entry) return ''
+  redoStack.push({ part: clone($part.get()), description: entry.description, detail: entry.detail })
+  $part.set(entry.part)
   clampSelection()
   clampActiveLayer()
   refreshHistoryFlags()
+  return entry.detail ? `${entry.description} · ${entry.detail}` : entry.description
 }
 
-export function redo(): void {
-  const next = redoStack.pop()
-  if (!next) return
-  undoStack.push(clone($part.get()))
-  $part.set(next)
+/** Redoes the next action. Returns a formatted label (e.g. "add part · bolt_2") for toast display. */
+export function redo(): string {
+  const entry = redoStack.pop()
+  if (!entry) return ''
+  undoStack.push({ part: clone($part.get()), description: entry.description, detail: entry.detail })
+  $part.set(entry.part)
   clampSelection()
   clampActiveLayer()
   refreshHistoryFlags()
+  return entry.detail ? `${entry.description} · ${entry.detail}` : entry.description
 }
 
 /** A serializable snapshot of the undo/redo stacks (newest-last), for project persistence. */
 export interface HistorySnapshot {
-  undo: EditingPart[]
-  redo: EditingPart[]
+  undo: Array<{ part: EditingPart; description: string; detail: string }>
+  redo: Array<{ part: EditingPart; description: string; detail: string }>
 }
 
 /**
@@ -156,21 +196,47 @@ export interface HistorySnapshot {
  * stacks module-private otherwise.
  */
 export function exportHistory(): HistorySnapshot {
-  return { undo: undoStack.map(clone), redo: redoStack.map(clone) }
+  return {
+    undo: undoStack.map((e) => ({ part: clone(e.part), description: e.description, detail: e.detail })),
+    redo: redoStack.map((e) => ({ part: clone(e.part), description: e.description, detail: e.detail })),
+  }
 }
 
 /**
  * Replaces the undo/redo stacks with deep copies of `snapshot` (used when a project
  * is loaded). Does NOT touch `$part` — the caller sets the document separately; this
  * only restores the history that goes with it. Refreshes the can-undo/redo flags.
+ * Handles legacy saves where entries were plain EditingPart or lacked detail/description.
  */
 export function importHistory(snapshot: HistorySnapshot): void {
   undoStack.length = 0
   redoStack.length = 0
-  for (const p of snapshot.undo) undoStack.push(clone(p))
-  for (const p of snapshot.redo) redoStack.push(clone(p))
+  for (const raw of snapshot.undo as unknown[]) {
+    const e = raw as { part?: EditingPart; description?: string; detail?: string } & EditingPart
+    undoStack.push({ part: clone(e.part ?? (e as EditingPart)), description: e.description ?? 'edit', detail: e.detail ?? '' })
+  }
+  for (const raw of snapshot.redo as unknown[]) {
+    const e = raw as { part?: EditingPart; description?: string; detail?: string } & EditingPart
+    redoStack.push({ part: clone(e.part ?? (e as EditingPart)), description: e.description ?? 'edit', detail: e.detail ?? '' })
+  }
   if (undoStack.length > MAX_UNDO) undoStack.splice(0, undoStack.length - MAX_UNDO)
   refreshHistoryFlags()
+}
+
+/**
+ * Jumps to a specific point in history by applying N undo or redo steps.
+ * Negative `steps` = undo that many times; positive = redo. Returns the
+ * description of the last step applied (empty if no steps taken).
+ */
+export function jumpToHistory(steps: number): string {
+  if (steps === 0) return ''
+  let last = ''
+  if (steps < 0) {
+    for (let i = 0; i < -steps; i++) last = undo()
+  } else {
+    for (let i = 0; i < steps; i++) last = redo()
+  }
+  return last
 }
 
 function lastSegmentLower(templateId: string): string {
@@ -180,12 +246,14 @@ function lastSegmentLower(templateId: string): string {
 
 /** Adds a SubPart from the catalog at the origin and selects it. */
 export function addSubPart(templateId: string): void {
-  pushUndo()
-  const part = clone($part.get())
+  const current = $part.get()
   const base = lastSegmentLower(templateId)
-  const count = part.placements.filter((p) => p.subPartTemplateId === templateId).length
+  const count = current.placements.filter((p) => p.subPartTemplateId === templateId).length
+  const instanceId = `${base}_${count + 1}`
+  pushUndo('add part', instanceId)
+  const part = clone(current)
   part.placements.push({
-    instanceId: `${base}_${count + 1}`,
+    instanceId,
     subPartTemplateId: templateId,
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
@@ -212,7 +280,12 @@ export function addPart(
   editorTags: readonly string[] = [],
 ): void {
   if (placements.length === 0 && connectors.length === 0) return
-  pushUndo()
+  const importDetail = placements.length > 0 && connectors.length === 0
+    ? (placements.length === 1 ? lastSegmentLower(placements[0].subPartTemplateId) : `${placements.length} parts`)
+    : connectors.length > 0 && placements.length === 0
+      ? `${connectors.length} connector${connectors.length > 1 ? 's' : ''}`
+      : `${placements.length} parts, ${connectors.length} connectors`
+  pushUndo('import', importDetail)
   const part = clone($part.get())
   const layerId = currentLayerId(part)
   for (const tag of editorTags) {
@@ -248,10 +321,12 @@ export function addPart(
 /** Adds a connector at the origin (facing local +X) and selects it. Connectors
  * always belong to the built-in Connectors layer, not the active layer. */
 export function addConnector(): void {
-  pushUndo()
-  const part = clone($part.get())
+  const current = $part.get()
+  const newId = nextConnectorId(current)
+  pushUndo('add connector', newId)
+  const part = clone(current)
   part.connectors.push({
-    id: nextConnectorId(part),
+    id: newId,
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
@@ -275,7 +350,7 @@ function nextConnectorId(part: EditingPart): string {
 export function setConnectorFlags(index: number, flags: ConnectorFlag): void {
   const current = $part.get()
   if (index < 0 || index >= current.connectors.length) return
-  pushUndo()
+  pushUndo('connector flags', `${current.connectors[index].id} → ${flags}`)
   const part = clone(current)
   part.connectors[index].flags = flags
   $part.set(part)
@@ -285,7 +360,7 @@ export function setConnectorFlags(index: number, flags: ConnectorFlag): void {
 export function removeSelected(): void {
   const ci = $selectedConnectorIndex.get()
   if (ci >= 0 && ci < $part.get().connectors.length) {
-    pushUndo()
+    pushUndo('delete connector', $part.get().connectors[ci]?.id ?? '')
     const part = clone($part.get())
     part.connectors.splice(ci, 1)
     $part.set(part)
@@ -294,8 +369,11 @@ export function removeSelected(): void {
   }
   const indices = $selectedIndices.get()
   if (indices.length === 0) return
-  pushUndo()
-  const part = clone($part.get())
+  const deletePart = $part.get()
+  const deleteNames = indices.map((i) => deletePart.placements[i]?.instanceId).filter(Boolean)
+  const deleteDetail = deleteNames.length === 1 ? deleteNames[0] : `${deleteNames.length} parts`
+  pushUndo(indices.length > 1 ? 'delete parts' : 'delete part', deleteDetail)
+  const part = clone(deletePart)
   // Splice in descending order so earlier indices stay valid.
   for (const i of [...indices].sort((a, b) => b - a)) {
     if (i >= 0 && i < part.placements.length) part.placements.splice(i, 1)
@@ -318,7 +396,7 @@ export function removeSelected(): void {
 export function removePlacement(index: number): void {
   const current = $part.get()
   if (index < 0 || index >= current.placements.length) return
-  pushUndo()
+  pushUndo('delete part', current.placements[index].instanceId)
   const part = clone(current)
   part.placements.splice(index, 1)
   $part.set(part)
@@ -333,7 +411,7 @@ export function duplicateSelected(): void {
   const ci = $selectedConnectorIndex.get()
   const srcConnector = $part.get().connectors[ci]
   if (ci >= 0 && srcConnector) {
-    pushUndo()
+    pushUndo('duplicate', srcConnector.id)
     const part = clone($part.get())
     part.connectors.push({
       id: nextConnectorId(part),
@@ -349,8 +427,10 @@ export function duplicateSelected(): void {
   }
   const indices = $selectedIndices.get()
   if (indices.length === 0) return
-  pushUndo()
-  const part = clone($part.get())
+  const dupPart = $part.get()
+  const dupNames = indices.map((i) => dupPart.placements[i]?.instanceId).filter(Boolean)
+  pushUndo('duplicate', dupNames.length === 1 ? dupNames[0] : `${dupNames.length} parts`)
+  const part = clone(dupPart)
   const newIndices: number[] = []
   for (const i of [...indices].sort((a, b) => a - b)) {
     const src = part.placements[i]
@@ -501,7 +581,10 @@ export function setSubPartInstanceId(index: number, instanceId: string): void {
 
 /** Replaces the editor tags. Discrete mutation (add/remove one tag) → self-records undo. */
 export function setEditorTags(editorTags: readonly string[]): void {
-  pushUndo()
+  const tagsDetail = editorTags.length === 0
+    ? 'none'
+    : editorTags.slice(0, 2).join(', ') + (editorTags.length > 2 ? ', …' : '')
+  pushUndo('edit tags', tagsDetail)
   const part = clone($part.get())
   part.editorTags = [...editorTags]
   $part.set(part)
@@ -528,10 +611,12 @@ function nextLayerId(part: EditingPart): string {
 
 /** Creates a layer (name trimmed; blank → "Layer N"), makes it active, returns its id. */
 export function createLayer(name: string): string {
-  pushUndo()
-  const part = clone($part.get())
+  const layerCurrent = $part.get()
+  const layerTrimmed = name.trim() || `Layer ${layerCurrent.layers.length + 1}`
+  pushUndo('add layer', layerTrimmed)
+  const part = clone(layerCurrent)
   const id = nextLayerId(part)
-  const trimmed = name.trim() || `Layer ${part.layers.length + 1}`
+  const trimmed = layerTrimmed
   part.layers.push({ id, name: trimmed })
   $part.set(part)
   $activeLayerId.set(id)
@@ -544,7 +629,7 @@ export function renameLayer(id: string, name: string): void {
   const layer = current.layers.find((l) => l.id === id)
   const trimmed = name.trim()
   if (!layer || !trimmed || layer.name === trimmed) return
-  pushUndo()
+  pushUndo('rename layer', `${layer.name} → ${trimmed}`)
   const part = clone(current)
   const target = part.layers.find((l) => l.id === id)!
   target.name = trimmed
@@ -567,7 +652,7 @@ export function deleteLayer(id: string, opts: DeleteLayerOptions): void {
   if (BUILT_IN_LAYER_IDS.includes(id)) return
   const current = $part.get()
   if (!current.layers.some((l) => l.id === id)) return
-  pushUndo()
+  pushUndo('delete layer', current.layers.find((l) => l.id === id)?.name ?? id)
   const part = clone(current)
   if (opts.mode === 'move-items') {
     const valid = opts.targetLayerId && opts.targetLayerId !== id &&
@@ -591,7 +676,7 @@ export function reorderLayers(orderedIds: readonly string[]): void {
   if (orderedIds.length !== current.layers.length) return
   const ids = new Set(current.layers.map((l) => l.id))
   if (!orderedIds.every((lid) => ids.has(lid))) return
-  pushUndo()
+  pushUndo('reorder layers')
   const part = clone(current)
   const byId = new Map(part.layers.map((l) => [l.id, l] as const))
   part.layers = orderedIds.map((lid) => byId.get(lid)!)
@@ -608,7 +693,7 @@ export function movePlacementToLayer(index: number, layerId: string): void {
   const placement = current.placements[index]
   if (!placement || placement.layerId === layerId) return
   if (!current.layers.some((l) => l.id === layerId)) return
-  pushUndo()
+  pushUndo('move to layer', `${current.placements[index].instanceId} → ${current.layers.find((l) => l.id === layerId)?.name ?? layerId}`)
   const part = clone(current)
   part.placements[index].layerId = layerId
   $part.set(part)
@@ -626,7 +711,11 @@ export function moveSelectedPlacementsToLayer(layerId: string): void {
   if (indices.length === 0) return
   const current = $part.get()
   if (!current.layers.some((l) => l.id === layerId)) return
-  pushUndo()
+  const destLayerName = current.layers.find((l) => l.id === layerId)?.name ?? layerId
+  const moveDetail = indices.length === 1
+    ? `${current.placements[indices[0]]?.instanceId ?? ''} → ${destLayerName}`
+    : `${indices.length} parts → ${destLayerName}`
+  pushUndo('move to layer', moveDetail)
   const part = clone(current)
   for (const i of indices) {
     const placement = part.placements[i]

@@ -103,12 +103,14 @@ export function TransformInspector() {
     updateSelectedTransform(next)
   }
 
+  const entityName = entity.kind === 'subpart' ? entity.placement.instanceId : entity.connector.id
+
   const posField = (axis: Axis) => (
     <ScalarField
       label={axis.toUpperCase()}
       value={transform.position[axis]}
       disabled={locked}
-      onInteractionStart={pushUndo}
+      onInteractionStart={() => pushUndo('move', entityName)}
       onCommit={(n) => commit((t) => (t.position[axis] = n))}
     />
   )
@@ -117,7 +119,7 @@ export function TransformInspector() {
       label={axis.toUpperCase()}
       value={transform.rotation[axis] * RAD2DEG}
       disabled={locked}
-      onInteractionStart={pushUndo}
+      onInteractionStart={() => pushUndo('rotate', entityName)}
       onCommit={(deg) => commit((t) => (t.rotation[axis] = deg * DEG2RAD))}
     />
   )
@@ -126,7 +128,7 @@ export function TransformInspector() {
       label={axis.toUpperCase()}
       value={transform.scale[axis]}
       disabled={locked}
-      onInteractionStart={pushUndo}
+      onInteractionStart={() => pushUndo('scale', entityName)}
       onCommit={(n) => commit((t) => (t.scale[axis] = n))}
     />
   )
@@ -188,7 +190,7 @@ function SubPartHeader({
         disabled={locked}
         onFocus={() => {
           setDraft(instanceId)
-          pushUndo()
+          pushUndo('edit instance ID', instanceId)
         }}
         onChange={(v: string) => {
           setDraft(v)
@@ -215,9 +217,11 @@ function BulkTransformPanel() {
   useStore($layerView) // re-render when lock state changes
   const anyLocked = selected.some(({ placement }) => isLayerLocked(placement.layerId))
 
+  const bulkDetail = selected.length === 1 ? selected[0].placement.instanceId : `${selected.length} parts`
+
   const applyMove = (delta: [number, number, number]) => {
     if (selected.length === 0) return
-    pushUndo()
+    pushUndo('move', bulkDetail)
     const d = { x: delta[0], y: delta[1], z: delta[2] }
     updatePlacementTransforms(
       selected.map(({ index, placement }) => ({ index, transform: translatedTransform(placement, d) })),
@@ -226,7 +230,7 @@ function BulkTransformPanel() {
 
   const applyRotate = (deg: [number, number, number]) => {
     if (selected.length === 0) return
-    pushUndo()
+    pushUndo('rotate', bulkDetail)
     const deltaQuat = quatFromEulerDeg({ x: deg[0], y: deg[1], z: deg[2] })
     const origin = centroidOf(selected.map(({ placement }) => placement.position))
     updatePlacementTransforms(
@@ -239,7 +243,7 @@ function BulkTransformPanel() {
 
   const applyScale = (factor: [number, number, number]) => {
     if (selected.length === 0) return
-    pushUndo()
+    pushUndo('scale', bulkDetail)
     const f = { x: factor[0], y: factor[1], z: factor[2] }
     updatePlacementTransforms(
       selected.map(({ index, placement }) => ({ index, transform: scaledInPlaceTransform(placement, f) })),

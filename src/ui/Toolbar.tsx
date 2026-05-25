@@ -8,6 +8,7 @@ import { PartDataButton } from './PartDataButton'
 import { ExportButton } from './ExportButton'
 import { ViewButton } from './ViewButton'
 import { SettingsButton } from './SettingsButton'
+import { HistoryButton } from './HistoryButton'
 
 /**
  * Top toolbar: part actions (add/import/part-data/export), the View popover
@@ -35,12 +36,13 @@ export function EditorToolbar() {
 
       <ToolbarSeparator />
 
-      <ToolbarButton disabled={!canUndo} onClick={() => { undo(); toast({ title: 'Undo', timeout: 1500 }) }}>
+      <ToolbarButton disabled={!canUndo} onClick={() => { const d = undo(); if (d) toast({ title: `Undo: ${d}`, timeout: 1500 }) }}>
         <Undo size={16} />
       </ToolbarButton>
-      <ToolbarButton disabled={!canRedo} onClick={() => { redo(); toast({ title: 'Redo', timeout: 1500 }) }}>
+      <ToolbarButton disabled={!canRedo} onClick={() => { const d = redo(); if (d) toast({ title: `Redo: ${d}`, timeout: 1500 }) }}>
         <Redo size={16} />
       </ToolbarButton>
+      <HistoryButton />
 
       <ToolbarSeparator />
 
