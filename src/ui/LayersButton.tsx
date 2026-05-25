@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '@nanostores/react'
 import { Popover, PopoverRoot, PopoverTrigger, ToolbarButton, Tooltip } from '@cladd-ui/react'
 import { $activeLayer } from '../state/selectors'
@@ -11,9 +12,10 @@ import { Layers } from 'lucide-react'
  */
 export function LayersButton() {
   const activeLayer = useStore($activeLayer)
+  const [open, setOpen] = useState(false)
 
   return (
-    <PopoverRoot>
+    <PopoverRoot open={open} onOpenChange={setOpen}>
       <PopoverTrigger>
         <Tooltip tooltip="Layers">
           <ToolbarButton aria-label="Layers" className="w-full justify-start">
@@ -27,7 +29,7 @@ export function LayersButton() {
       {/* Padding lives on the inner content area (not the root) so the focus rings
           of the name input + rows aren't clipped by the content area's overflow. */}
       <Popover position="bottom-end" className="w-[340px]" contentClassName="p-2">
-        <LayersPanel />
+        <LayersPanel onLayerSelected={() => setOpen(false)} />
       </Popover>
     </PopoverRoot>
   )

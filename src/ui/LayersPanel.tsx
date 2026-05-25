@@ -41,7 +41,7 @@ function computeReorder(
  * state (layerStore); creation/rename/reorder/delete mutate the document and are
  * undoable (editorStore).
  */
-export function LayersPanel() {
+export function LayersPanel({ onLayerSelected }: { onLayerSelected?: () => void } = {}) {
   const summaries = useStore($layerSummaries)
   const activeId = useStore($activeLayerId)
   const [newName, setNewName] = useState('')
@@ -62,7 +62,10 @@ export function LayersPanel() {
   const onSelectionChange = (keys: Selection) => {
     if (keys === 'all') return
     const [first] = [...keys]
-    if (first != null) setActiveLayer(String(first))
+    if (first != null) {
+      setActiveLayer(String(first))
+      onLayerSelected?.()
+    }
   }
 
   const createFromInput = () => {

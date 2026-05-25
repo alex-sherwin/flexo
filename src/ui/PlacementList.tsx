@@ -4,6 +4,7 @@ import { GridList, GridListItem, type Selection } from 'react-aria-components'
 import { ChevronRight, MoreVertical } from 'lucide-react'
 import { Button, Dialog, List, ListButton, Popover, PopoverRoot, PopoverTrigger, Surface } from '@cladd-ui/react'
 import {
+  $activeLayerId,
   $part,
   $selectedConnectorIndex,
   $selectedIndices,
@@ -29,12 +30,18 @@ export function PlacementList() {
   const part = useStore($part)
   const selectedIndices = useStore($selectedIndices)
   const selectedCon = useStore($selectedConnectorIndex)
+  const activeLayerId = useStore($activeLayerId)
   const hasSelection = selectedIndices.length > 0 || selectedCon >= 0
 
   // GridList items need a stable `id`; SubPart placements key on `instanceId`.
+  // Only show placements belonging to the active layer, but preserve real indices
+  // into part.placements so selection/deletion/etc still address the right element.
   const items = useMemo(
-    () => part.placements.map((placement, index) => ({ id: placement.instanceId, index, placement })),
-    [part.placements],
+    () =>
+      part.placements
+        .map((placement, index) => ({ id: placement.instanceId, index, placement }))
+        .filter((item) => item.placement.layerId === activeLayerId),
+    [part.placements, activeLayerId],
   )
   const indexByInstanceId = useMemo(
     () => new Map(part.placements.map((p, i) => [p.instanceId, i])),
@@ -45,9 +52,18 @@ export function PlacementList() {
     [selectedIndices, part.placements],
   )
 
+  // Connectors filtered to the active layer (only non-empty when the Connectors layer is active).
+  const connectorItems = useMemo(
+    () =>
+      part.connectors
+        .map((connector, index) => ({ connector, index }))
+        .filter(({ connector }) => connector.layerId === activeLayerId),
+    [part.connectors, activeLayerId],
+  )
+
   const onSelectionChange = (keys: Selection) => {
     if (keys === 'all') {
-      setSelectedPlacements(part.placements.map((_, i) => i))
+      setSelectedPlacements(items.map((item) => item.index))
       return
     }
     setSelectedPlacements(
@@ -58,13 +74,14 @@ export function PlacementList() {
     )
   }
 
-  const selectedLabel = selectedIndices.length > 0 ? ` · ${selectedIndices.length} selected` : ''
+  const activeSelectedCount = items.filter((item) => selectedIndices.includes(item.index)).length
+  const selectedLabel = activeSelectedCount > 0 ? ` · ${activeSelectedCount} selected` : ''
 
   return (
     <Surface outline className="flex h-full min-h-0 flex-col rounded-xl" contentClassName="flex min-h-0 flex-col gap-2 p-2">
       <div className="flex items-center justify-between px-1">
         <span className="text-xs uppercase tracking-wide text-cladd-fg-softer">
-          Placed ({part.placements.length}){selectedLabel}
+          Placed ({items.length}){selectedLabel}
         </span>
         <div className="flex gap-1">
           <Button size="xs" disabled={!hasSelection} onClick={() => duplicateSelected()}>
@@ -94,11 +111,11 @@ export function PlacementList() {
               textValue={item.placement.instanceId}
               className={({ isSelected, isFocusVisible }) =>
                 [
-                  'flex cursor-default select-none items-center gap-1 rounded-md px-2 py-1 outline-none',
+                  'flex cursor-default select-none items-center gap-1 rounded-md px-2 py-1 text-cladd-fg outline-none',
                   isSelected
-                    ? 'bg-cladd-primary text-cladd-on-primary'
-                    : 'text-cladd-fg hover:bg-cladd-surface-hover',
-                  isFocusVisible && !isSelected ? 'ring-2 ring-cladd-primary' : '',
+                    ? 'bg-cladd-surface-press ring-2 ring-inset ring-cladd-primary'
+                    : 'hover:bg-cladd-surface-hover',
+                  isFocusVisible && !isSelected ? 'ring-1 ring-inset ring-cladd-primary' : '',
                 ].join(' ')
               }
             >
@@ -111,22 +128,22 @@ export function PlacementList() {
           )}
         </GridList>
 
-        {part.connectors.length > 0 && (
+        {connectorItems.length > 0 && (
           <>
             <span className="mt-2 block px-1 text-xs uppercase tracking-wide text-cladd-fg-softer">
-              Connectors ({part.connectors.length})
+              Connectors ({connectorItems.length})
             </span>
             <List>
-              {part.connectors.map((c, i) => (
+              {connectorItems.map(({ connector, index }) => (
                 <ListButton
-                  key={c.id}
+                  key={connector.id}
                   size="sm"
-                  selected={i === selectedCon}
+                  selected={index === selectedCon}
                   color="brand"
-                  onClick={() => selectConnector(i)}
-                  footer={c.flags === 'None' ? 'no flags' : c.flags}
+                  onClick={() => selectConnector(index)}
+                  footer={connector.flags === 'None' ? 'no flags' : connector.flags}
                 >
-                  <span className="truncate font-mono">{c.id}</span>
+                  <span className="truncate font-mono">{connector.id}</span>
                 </ListButton>
               ))}
             </List>

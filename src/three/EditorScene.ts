@@ -15,6 +15,7 @@ import { initTextureSupport } from './textureSupport'
 import type { CatalogSubPart } from '../ksa/catalog'
 import type { EditingPart, Vec3 } from '../ksa/types'
 import {
+  $activeLayerId,
   $part,
   $selectedConnectorIndex,
   $selectedIndices,
@@ -32,7 +33,7 @@ import {
 import { $catalogIndex } from '../state/catalogStore'
 import { $connectorSettings, type ConnectorSettings } from '../state/settingsStore'
 import { $cameraSnap, $grids } from '../state/viewStore'
-import { $layerView, isLayerLocked, layerViewState } from '../state/layerStore'
+import { $layerView, isLayerLocked, isLayerVisible, layerViewState } from '../state/layerStore'
 
 /** A highlightable scene entity — both SubPartObject and ConnectorObject match. */
 interface SelectableObject {
@@ -90,18 +91,25 @@ export class EditorScene {
           if (!additive) clearSelection()
           return
         }
+        const activeLayerId = $activeLayerId.get()
         if (selected.kind === 'subpart') {
           const placements = $part.get().placements
           const index = placements.findIndex((p) => p.instanceId === selected.id)
           if (index < 0) return
-          if (isLayerLocked(placements[index].layerId)) return // locked layer: not selectable
+          const layerId = placements[index].layerId
+          if (isLayerLocked(layerId)) return
+          if (!isLayerVisible(layerId)) return // three.js does not skip invisible objects during raycasting
+          if (layerId !== activeLayerId) return // only select within the active layer
           if (additive) togglePlacement(index)
           else selectPlacement(index)
         } else {
           const connectors = $part.get().connectors
           const index = connectors.findIndex((c) => c.id === selected.id)
           if (index < 0) return
-          if (isLayerLocked(connectors[index].layerId)) return // locked layer: not selectable
+          const layerId = connectors[index].layerId
+          if (isLayerLocked(layerId)) return
+          if (!isLayerVisible(layerId)) return // three.js does not skip invisible objects during raycasting
+          if (layerId !== activeLayerId) return // only select within the active layer
           selectConnector(index)
         }
       },
@@ -211,8 +219,8 @@ export class EditorScene {
 
   /**
    * Hides/shows each built entity by its layer's visibility (from `$layerView`).
-   * Setting `group.visible = false` also removes it from raycasting, so hidden
-   * layers are neither rendered nor clickable.
+   * Note: three.js does NOT skip invisible objects during raycasting, so the
+   * `onSelect` callback guards against hidden/non-active-layer hits explicitly.
    */
   private applyLayerVisibility(): void {
     const part = $part.get()
