@@ -280,6 +280,25 @@ export function removeSelected(): void {
   }
 }
 
+/**
+ * Removes a single SubPart by index (used by the per-row context menu, which acts
+ * on its own row regardless of the current selection). Discrete mutation → records
+ * undo. Selection is adjusted: the removed index is dropped and indices after it
+ * shift down by one so the selection keeps pointing at the same SubParts.
+ */
+export function removePlacement(index: number): void {
+  const current = $part.get()
+  if (index < 0 || index >= current.placements.length) return
+  pushUndo()
+  const part = clone(current)
+  part.placements.splice(index, 1)
+  $part.set(part)
+  const sel = $selectedIndices.get()
+  const next = sel.filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))
+  if (next.length !== sel.length) $selectedIndices.set(next)
+  else if (next.some((v, k) => v !== sel[k])) $selectedIndices.set(next)
+}
+
 /** Duplicates the selected entity/entities (SubParts or a connector) and selects the copies. */
 export function duplicateSelected(): void {
   const ci = $selectedConnectorIndex.get()
@@ -547,6 +566,22 @@ export function reorderLayers(orderedIds: readonly string[]): void {
   const part = clone(current)
   const byId = new Map(part.layers.map((l) => [l.id, l] as const))
   part.layers = orderedIds.map((lid) => byId.get(lid)!)
+  $part.set(part)
+}
+
+/**
+ * Moves a single SubPart to another layer (used by the per-row context menu).
+ * Discrete mutation → records undo. No-op for an unknown index/layer or when the
+ * SubPart is already on that layer.
+ */
+export function movePlacementToLayer(index: number, layerId: string): void {
+  const current = $part.get()
+  const placement = current.placements[index]
+  if (!placement || placement.layerId === layerId) return
+  if (!current.layers.some((l) => l.id === layerId)) return
+  pushUndo()
+  const part = clone(current)
+  part.placements[index].layerId = layerId
   $part.set(part)
 }
 
