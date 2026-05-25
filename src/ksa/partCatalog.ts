@@ -8,7 +8,7 @@
  * Uses the browser DOMParser — no third-party XML lib, no build step.
  */
 
-import { ASSET_FILES, toUrl } from './catalog'
+import { ASSET_FILES, fetchXmlFile } from './catalog'
 import { connectorsFromPartElement, directChildren, placementsFromPartElement } from './partXmlParser'
 import type { Connector, ConnectorFlag, SubPartPlacement } from './types'
 
@@ -80,19 +80,10 @@ async function loadGameData(): Promise<Map<string, PartGameData>> {
   const out = new Map<string, PartGameData>()
   await Promise.all(
     GAMEDATA_FILES.map(async (file) => {
-      try {
-        const res = await fetch(toUrl(file))
-        if (!res.ok) return // many asset files have no GameData sibling — expected
-        const text = await res.text()
-        const doc = new DOMParser().parseFromString(text, 'application/xml')
-        if (doc.getElementsByTagName('parsererror').length > 0) {
-          console.warn(`partCatalog: parse error in ${file}`)
-          return
-        }
-        parseGameDataFile(doc, out)
-      } catch (err) {
-        console.warn(`partCatalog: error loading ${file}`, err)
-      }
+      const r = await fetchXmlFile(file)
+      // Most asset files have no GameData sibling ('missing' — expected and silent);
+      // genuine parse/network errors are logged verbosely inside fetchXmlFile.
+      if (r.kind === 'ok') parseGameDataFile(r.doc, out)
     }),
   )
   return out
@@ -119,22 +110,12 @@ export async function loadCorePartCatalog(): Promise<CatalogPart[]> {
   const [, gameData] = await Promise.all([
     Promise.all(
       ASSET_FILES.map(async (file) => {
-        try {
-          const res = await fetch(toUrl(file))
-          if (!res.ok) {
-            console.warn(`partCatalog: failed to fetch ${file}: ${res.status}`)
-            return
-          }
-          const text = await res.text()
-          const doc = new DOMParser().parseFromString(text, 'application/xml')
-          if (doc.getElementsByTagName('parsererror').length > 0) {
-            console.warn(`partCatalog: parse error in ${file}`)
-            return
-          }
-          parsePartsFile(doc, file, out)
-        } catch (err) {
-          console.warn(`partCatalog: error loading ${file}`, err)
+        const r = await fetchXmlFile(file)
+        if (r.kind === 'missing') {
+          console.error(`partCatalog: required asset file ${file} not found`)
+          return
         }
+        if (r.kind === 'ok') parsePartsFile(r.doc, file, out)
       }),
     ),
     loadGameData(),

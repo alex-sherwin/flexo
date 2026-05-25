@@ -52,6 +52,53 @@ export function toUrl(relPath: string): string {
   return KSA_BASE + relPath.replace(/^\/+/, '')
 }
 
+/** Result of fetching+parsing a /ksa/ XML file. 'missing' = file genuinely absent (real 404, or vite's SPA index.html fallback served with 200 for an unknown path). */
+export type XmlFetchResult =
+  | { kind: 'ok'; doc: Document }
+  | { kind: 'missing' }
+  | { kind: 'error' }
+
+function looksLikeHtmlFallback(text: string): boolean {
+  const head = text.slice(0, 256).trimStart().toLowerCase()
+  return head.startsWith('<!doctype html') || head.startsWith('<html')
+}
+
+/**
+ * Fetches and parses a /ksa/ XML file. Returns 'missing' for absent files (404,
+ * or the dev server's index.html SPA fallback) so optional siblings can be skipped
+ * silently. On a genuine XML parse error — which indicates a real bug — logs the
+ * file, parser message, content-type, and full body before returning 'error'.
+ */
+export async function fetchXmlFile(file: string): Promise<XmlFetchResult> {
+  let res: Response
+  try {
+    res = await fetch(toUrl(file))
+  } catch (err) {
+    console.error(`ksa catalog: network error fetching ${file}`, err)
+    return { kind: 'error' }
+  }
+  if (res.status === 404) return { kind: 'missing' }
+  if (!res.ok) {
+    console.error(`ksa catalog: failed to fetch ${file}: ${res.status} ${res.statusText}`)
+    return { kind: 'error' }
+  }
+  const text = await res.text()
+  if (looksLikeHtmlFallback(text)) return { kind: 'missing' }
+  const doc = new DOMParser().parseFromString(text, 'application/xml')
+  const parseErr = doc.getElementsByTagName('parsererror')[0]
+  if (parseErr) {
+    console.error(
+      `ksa catalog: XML parse error in ${file}\n` +
+        `  url: ${res.url}\n` +
+        `  content-type: ${res.headers.get('content-type') ?? '(none)'}\n` +
+        `  parser message: ${(parseErr.textContent ?? '').trim()}\n` +
+        `  --- ${file} contents (${text.length} chars) ---\n${text}`,
+    )
+    return { kind: 'error' }
+  }
+  return { kind: 'ok', doc }
+}
+
 function firstChildByTag(parent: Element, tag: string): Element | null {
   for (const child of Array.from(parent.childNodes)) {
     if (child.nodeType === 1 && (child as Element).tagName === tag) return child as Element
@@ -94,12 +141,14 @@ export function parseAssetsFile(doc: Document, sourceFile: string, out: CatalogS
     })
   }
 
-  // SubPart templates: those that carry a <PartModel> (instances have InstanceOf
-  // and no PartModel, so they are naturally skipped).
+  // SubPart templates: those that carry a renderable model. Static parts use
+  // <PartModel>; movable engine parts (actuators, gimbals, flexipipes) use
+  // <PartModelDynamic> with the same inner <Mesh>/<Material>. Instances carry only
+  // InstanceOf and no model element, so they are naturally skipped.
   for (const sub of Array.from(doc.getElementsByTagName('SubPart'))) {
     const id = sub.getAttribute('Id')
     if (!id) continue
-    const partModel = firstChildByTag(sub, 'PartModel')
+    const partModel = firstChildByTag(sub, 'PartModel') ?? firstChildByTag(sub, 'PartModelDynamic')
     if (!partModel) continue
 
     const meshId = firstChildByTag(partModel, 'Mesh')?.getAttribute('Id')
@@ -146,22 +195,12 @@ export async function loadCoreCatalog(): Promise<CatalogSubPart[]> {
   const out: CatalogSubPart[] = []
   await Promise.all(
     ASSET_FILES.map(async (file) => {
-      try {
-        const res = await fetch(toUrl(file))
-        if (!res.ok) {
-          console.warn(`catalog: failed to fetch ${file}: ${res.status}`)
-          return
-        }
-        const text = await res.text()
-        const doc = new DOMParser().parseFromString(text, 'application/xml')
-        if (doc.getElementsByTagName('parsererror').length > 0) {
-          console.warn(`catalog: parse error in ${file}`)
-          return
-        }
-        parseAssetsFile(doc, file, out)
-      } catch (err) {
-        console.warn(`catalog: error loading ${file}`, err)
+      const r = await fetchXmlFile(file)
+      if (r.kind === 'missing') {
+        console.error(`catalog: required asset file ${file} not found`)
+        return
       }
+      if (r.kind === 'ok') parseAssetsFile(r.doc, file, out)
     }),
   )
   out.sort((a, b) => a.id.localeCompare(b.id))

@@ -111,11 +111,11 @@ function BrowserBody({ onClose }: { onClose: () => void }) {
             {selectedId ?? ''}
           </span>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={onClose}>
-              Close
-            </Button>
             <Button size="sm" color="brand" disabled={!selectedId} onClick={add}>
               Add SubPart to Project
+            </Button>
+            <Button size="sm" onClick={onClose}>
+              Close
             </Button>
           </div>
         </div>
