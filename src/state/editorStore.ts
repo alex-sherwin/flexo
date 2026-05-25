@@ -585,6 +585,28 @@ export function movePlacementToLayer(index: number, layerId: string): void {
   $part.set(part)
 }
 
+/**
+ * Moves every selected SubPart to `layerId` in a single undo step, then makes that
+ * layer active so the moved items stay visible (PlacementList filters by active
+ * layer). Selection is preserved: editing a placement's layerId doesn't reorder
+ * `placements`, so the selected indices keep pointing at the same SubParts. No-op
+ * for an unknown layer or an empty selection.
+ */
+export function moveSelectedPlacementsToLayer(layerId: string): void {
+  const indices = $selectedIndices.get()
+  if (indices.length === 0) return
+  const current = $part.get()
+  if (!current.layers.some((l) => l.id === layerId)) return
+  pushUndo()
+  const part = clone(current)
+  for (const i of indices) {
+    const placement = part.placements[i]
+    if (placement) placement.layerId = layerId
+  }
+  $part.set(part)
+  $activeLayerId.set(layerId)
+}
+
 /** Sets the active layer (where new items land). No-op for unknown ids. Ephemeral. */
 export function setActiveLayer(id: string): void {
   if ($part.get().layers.some((l) => l.id === id)) $activeLayerId.set(id)

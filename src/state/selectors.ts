@@ -32,6 +32,16 @@ export const $hasSelection = computed(
 )
 
 /**
+ * True when more than one entity is selected — the trigger for the multi-select
+ * toolbar. Only SubParts support multi-selection (connector selection is single),
+ * so this keys solely on the SubPart indices.
+ */
+export const $hasMultiSelection = computed(
+  $selectedIndices,
+  (indices): boolean => indices.length > 1,
+)
+
+/**
  * The single selected entity (SubPart or connector) as a discriminated union, or
  * null. The SubPart branch is non-null ONLY when exactly one SubPart is selected;
  * multi-selection is represented by {@link $selectedPlacements} instead and drives
