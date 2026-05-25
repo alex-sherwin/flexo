@@ -51,8 +51,7 @@ Persist any state that represents **user-facing settings or UI state** that end-
 
 Do **not** persist:
 
-- **Transient working state** — currently-selected placement (users expect a fresh slate)
-- **Session data** — undo/redo stacks (store separately if needed, clear on reload)
+- **Transient working state** — currently-selected placement, camera position (users expect a fresh slate / reset camera)
 - **Large computed state** — expensive to serialize/deserialize
 - **Data that comes from the server** — catalog, SubPart templates (load from source of truth)
 
@@ -98,7 +97,16 @@ function Inspector() {
 }
 ```
 
+## Projects (workspace persistence)
+
+Beyond individual preference atoms, the **entire editing workspace** is persisted as a
+*project*: the `$part` document, per-layer view state, active layer, and the undo/redo
+history. This is a separate, hand-rolled localStorage layer (not `@nanostores/persistent`)
+because it bundles multiple stores under a named, switchable key and restores them before
+React renders. See [projects.md](./projects.md).
+
 ## Related
 
 - [editor-state.md](./editor-state.md) — core nanostores atoms and actions
+- [projects.md](./projects.md) — project-based workspace persistence (multi-project, autosave, boot restore)
 - [@nanostores/persistent docs](https://github.com/nanostores/persistent)

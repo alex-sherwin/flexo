@@ -1,0 +1,152 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  $activeLayerId,
+  $canUndo,
+  $part,
+  addConnector,
+  addSubPart,
+  createLayer,
+  newPart,
+  undo,
+} from './editorStore'
+import { $layerView, setLayerLocked, toggleLayerVisible } from './layerStore'
+import {
+  $projectName,
+  createProject,
+  deleteProject,
+  listProjects,
+  loadProject,
+  projectExists,
+  renameCurrentProject,
+  saveCurrentProject,
+  uniqueProjectName,
+  DEFAULT_PROJECT_NAME,
+} from './projectStore'
+import { CONNECTOR_LAYER_ID, DEFAULT_LAYER_ID } from '../ksa/types'
+
+beforeEach(() => {
+  localStorage.clear()
+  newPart()
+  $layerView.set({})
+  $projectName.set(DEFAULT_PROJECT_NAME)
+})
+
+describe('projectStore persistence', () => {
+  it('round-trips the document, active layer, layer view, and history', () => {
+    $projectName.set('Rocket')
+    const engines = createLayer('Engines') // active = Engines, undoable
+    addSubPart('Core.A') // lands in Engines
+    addConnector()
+    toggleLayerVisible(engines)
+    setLayerLocked(CONNECTOR_LAYER_ID, true)
+    expect($canUndo.get()).toBe(true)
+    saveCurrentProject()
+
+    // Wipe the workspace, then reload from storage.
+    newPart()
+    $layerView.set({})
+    $projectName.set('scratch')
+    expect($part.get().placements.length).toBe(0)
+
+    expect(loadProject('Rocket')).toBe(true)
+    expect($projectName.get()).toBe('Rocket')
+    expect($part.get().placements.map((p) => p.layerId)).toEqual([engines])
+    expect($part.get().connectors.length).toBe(1)
+    expect($activeLayerId.get()).toBe(engines)
+    expect($layerView.get()[engines]?.visible).toBe(false)
+    expect($layerView.get()[CONNECTOR_LAYER_ID]?.locked).toBe(true)
+
+    // History came back: a single undo removes the connector that was added last.
+    expect($canUndo.get()).toBe(true)
+    undo()
+    expect($part.get().connectors.length).toBe(0)
+  })
+
+  it('clamps a stale active layer to Default on load', () => {
+    $projectName.set('Stale')
+    saveCurrentProject()
+    // Hand-craft a snapshot pointing at a layer that does not exist.
+    const raw = JSON.parse(localStorage.getItem('flexo:project:Stale')!)
+    raw.activeLayerId = 'ghost-layer'
+    localStorage.setItem('flexo:project:Stale', JSON.stringify(raw))
+
+    loadProject('Stale')
+    expect($activeLayerId.get()).toBe(DEFAULT_LAYER_ID)
+  })
+
+  it('lists saved projects most-recent-first with summaries', () => {
+    $projectName.set('Older')
+    addSubPart('Core.A')
+    saveCurrentProject()
+    // Force a strictly later savedAt for the second project.
+    const older = JSON.parse(localStorage.getItem('flexo:project:Older')!)
+    older.savedAt = 1000
+    localStorage.setItem('flexo:project:Older', JSON.stringify(older))
+
+    newPart()
+    $projectName.set('Newer')
+    addSubPart('Core.A')
+    addSubPart('Core.B')
+    saveCurrentProject()
+    const newer = JSON.parse(localStorage.getItem('flexo:project:Newer')!)
+    newer.savedAt = 2000
+    localStorage.setItem('flexo:project:Newer', JSON.stringify(newer))
+
+    const list = listProjects()
+    expect(list.map((p) => p.name)).toEqual(['Newer', 'Older'])
+    expect(list[0].subPartCount).toBe(2)
+    expect(list[1].subPartCount).toBe(1)
+  })
+
+  it('createProject starts a fresh, saved, current project', () => {
+    addSubPart('Core.A')
+    $projectName.set('HasStuff')
+    saveCurrentProject()
+
+    createProject('Brand New')
+    expect($projectName.get()).toBe('Brand New')
+    expect($part.get().placements.length).toBe(0)
+    expect(projectExists('Brand New')).toBe(true)
+    // The previous project is untouched on disk.
+    expect(projectExists('HasStuff')).toBe(true)
+  })
+
+  it('renameCurrentProject re-keys storage (old key removed)', () => {
+    $projectName.set('OldName')
+    saveCurrentProject()
+    renameCurrentProject('NewName')
+    expect($projectName.get()).toBe('NewName')
+    expect(projectExists('NewName')).toBe(true)
+    expect(projectExists('OldName')).toBe(false)
+  })
+
+  it('deleting the current project switches to the most recent remaining one', () => {
+    $projectName.set('Keep')
+    addSubPart('Core.A')
+    saveCurrentProject()
+    const keep = JSON.parse(localStorage.getItem('flexo:project:Keep')!)
+    keep.savedAt = 500
+    localStorage.setItem('flexo:project:Keep', JSON.stringify(keep))
+
+    createProject('Doomed') // becomes current
+    deleteProject('Doomed')
+    expect(projectExists('Doomed')).toBe(false)
+    expect($projectName.get()).toBe('Keep')
+    expect($part.get().placements.length).toBe(1)
+  })
+
+  it('deleting the only project falls back to a fresh default', () => {
+    createProject('Solo')
+    deleteProject('Solo')
+    expect($projectName.get()).toBe(DEFAULT_PROJECT_NAME)
+    expect(projectExists(DEFAULT_PROJECT_NAME)).toBe(true)
+  })
+
+  it('uniqueProjectName avoids collisions', () => {
+    expect(uniqueProjectName('Untitled')).toBe('Untitled')
+    createProject('Untitled')
+    expect(uniqueProjectName('Untitled')).toBe('Untitled 2')
+    createProject('Untitled 2')
+    expect(uniqueProjectName('Untitled')).toBe('Untitled 3')
+  })
+})

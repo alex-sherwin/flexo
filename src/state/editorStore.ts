@@ -144,6 +144,35 @@ export function redo(): void {
   refreshHistoryFlags()
 }
 
+/** A serializable snapshot of the undo/redo stacks (newest-last), for project persistence. */
+export interface HistorySnapshot {
+  undo: EditingPart[]
+  redo: EditingPart[]
+}
+
+/**
+ * Exports a deep copy of the current undo/redo stacks. Used by projectStore to
+ * persist history as part of a project (so undo survives a reload), keeping the
+ * stacks module-private otherwise.
+ */
+export function exportHistory(): HistorySnapshot {
+  return { undo: undoStack.map(clone), redo: redoStack.map(clone) }
+}
+
+/**
+ * Replaces the undo/redo stacks with deep copies of `snapshot` (used when a project
+ * is loaded). Does NOT touch `$part` — the caller sets the document separately; this
+ * only restores the history that goes with it. Refreshes the can-undo/redo flags.
+ */
+export function importHistory(snapshot: HistorySnapshot): void {
+  undoStack.length = 0
+  redoStack.length = 0
+  for (const p of snapshot.undo) undoStack.push(clone(p))
+  for (const p of snapshot.redo) redoStack.push(clone(p))
+  if (undoStack.length > MAX_UNDO) undoStack.splice(0, undoStack.length - MAX_UNDO)
+  refreshHistoryFlags()
+}
+
 function lastSegmentLower(templateId: string): string {
   const seg = templateId.split('.').pop() ?? templateId
   return seg.toLowerCase()

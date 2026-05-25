@@ -54,6 +54,7 @@ function collectReferencedAssets(srcRoot: string): Set<string> {
     const path = join(srcRoot, file)
     if (!existsSync(path)) continue
     // Some KSA XML files start with a UTF-8 BOM, which strict @xmldom rejects.
+    // eslint-disable-next-line no-irregular-whitespace -- BOM is invisible but real
     const text = readFileSync(path, 'utf-8').replace(/^﻿/, '')
     const doc = parser.parseFromString(text, 'application/xml')
     for (const atlas of Array.from(doc.getElementsByTagName('MeshAtlas'))) {

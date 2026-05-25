@@ -19,7 +19,9 @@ the 3D scene subscribes with vanilla `subscribe()`, React reads via
 Per-layer **visibility/lock** is NOT in `$part` — it's persisted view state in
 `src/state/layerStore.ts` (`$layerView`). See [layers.md](./layers.md).
 
-Undo/redo stacks are module-private arrays (depth 50), not atoms.
+Undo/redo stacks are module-private arrays (depth 50), not atoms. They're exposed
+for project persistence only via `exportHistory()` / `importHistory(snapshot)` (so
+undo survives a reload) — see [projects.md](./projects.md).
 
 ## Actions (plain exported functions)
 
@@ -83,7 +85,11 @@ Rotation is shown in **degrees**, stored/exported in **radians**.
 
 ## Persistence
 
-UI settings and user preferences that should survive page refresh use **localStorage persistence** via `@nanostores/persistent`. See [state-persistence.md](./state-persistence.md) for patterns on what to persist (panel visibility, tool modes, view settings) and what not to (transient selections, undo/redo stacks).
+UI settings and user preferences that should survive page refresh use **localStorage persistence** via `@nanostores/persistent`. See [state-persistence.md](./state-persistence.md) for patterns on what to persist (panel visibility, tool modes, view settings) and what not to (transient selections).
+
+The whole editing workspace is also persisted as a **project** (document + layer view
+state + active layer + undo/redo history), autosaved to localStorage and restored on
+boot. See [projects.md](./projects.md).
 
 ## Tests
 `src/state/editorStore.test.ts` covers instance-id generation, add/remove/duplicate,

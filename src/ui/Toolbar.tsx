@@ -3,6 +3,7 @@ import { Toolbar as CladdToolbar, ToolbarButton, ToolbarSeparator, useToast } fr
 import { Undo, Redo } from 'lucide-react'
 import { $canRedo, $canUndo, redo, undo } from '../state/editorStore'
 import { AddButton } from './AddButton'
+import { ProjectButton } from './ProjectButton'
 import { PartDataButton } from './PartDataButton'
 import { ExportButton } from './ExportButton'
 import { ViewButton } from './ViewButton'
@@ -20,6 +21,10 @@ export function EditorToolbar() {
 
   return (
     <CladdToolbar size="sm">
+      <ProjectButton />
+
+      <ToolbarSeparator />
+
       <AddButton />
       <PartDataButton />
       <ExportButton />
