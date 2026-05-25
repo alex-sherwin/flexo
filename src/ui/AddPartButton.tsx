@@ -33,15 +33,21 @@ export function AddPartButton() {
   return (
     <>
       <ToolbarButton onClick={() => setOpen(true)}>+ Part</ToolbarButton>
-      <Popup
-        open={open}
-        onOpenChange={setOpen}
-        contentClassName="max-w-5xl"
-        headerLeft={<span className="px-2 pb-1 text-cladd-sm font-semibold">Add Part</span>}
-      >
-        {open && <BrowserBody onClose={() => setOpen(false)} />}
-      </Popup>
+      <PartPopup open={open} onOpenChange={setOpen} />
     </>
+  )
+}
+
+export function PartPopup({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Popup
+      open={open}
+      onOpenChange={onOpenChange}
+      contentClassName="max-w-5xl"
+      headerLeft={<span className="px-2 pb-1 text-cladd-sm font-semibold">Add Part</span>}
+    >
+      {open && <BrowserBody onClose={() => onOpenChange(false)} />}
+    </Popup>
   )
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '@nanostores/react'
 import { ListBox, ListBoxItem, useDragAndDrop, type Selection } from 'react-aria-components'
-import { Button, Chip, Dialog, Input, Segmented, SegmentedButton, Select, Tooltip } from '@cladd-ui/react'
+import { Button, Chip, Dialog, Input, ListTitle, Segmented, SegmentedButton, Select, Tooltip } from '@cladd-ui/react'
 import {
   $activeLayerId,
   createLayer,
@@ -75,6 +75,7 @@ export function LayersPanel() {
 
   return (
     <div className="flex w-full flex-col gap-2">
+      <ListTitle>Layers</ListTitle>
       <div className="flex items-center gap-1">
         <Input
           size="sm"

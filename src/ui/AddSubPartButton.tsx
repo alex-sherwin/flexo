@@ -29,15 +29,21 @@ export function AddSubPartButton() {
   return (
     <>
       <ToolbarButton onClick={() => setOpen(true)}>+ SubPart</ToolbarButton>
-      <Popup
-        open={open}
-        onOpenChange={setOpen}
-        contentClassName="max-w-5xl"
-        headerLeft={<span className="px-2 pb-1 text-cladd-sm font-semibold">Add SubPart</span>}
-      >
-        {open && <BrowserBody onClose={() => setOpen(false)} />}
-      </Popup>
+      <SubPartPopup open={open} onOpenChange={setOpen} />
     </>
+  )
+}
+
+export function SubPartPopup({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Popup
+      open={open}
+      onOpenChange={onOpenChange}
+      contentClassName="max-w-5xl"
+      headerLeft={<span className="px-2 pb-1 text-cladd-sm font-semibold">Add SubPart</span>}
+    >
+      {open && <BrowserBody onClose={() => onOpenChange(false)} />}
+    </Popup>
   )
 }
 

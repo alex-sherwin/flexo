@@ -1,0 +1,6 @@
+- add Cladd Toast messages for operations that are warranted:
+    - when adding a SubPart
+    - when importing a Part
+    - when adding a Conenctor
+    - when Undo is applied
+    - when Redo is applied

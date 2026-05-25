@@ -1,9 +1,7 @@
 import { useStore } from '@nanostores/react'
 import { Button, Toolbar as CladdToolbar, ToolbarSeparator } from '@cladd-ui/react'
 import { $canRedo, $canUndo, redo, undo } from '../state/editorStore'
-import { AddSubPartButton } from './AddSubPartButton'
-import { AddPartButton } from './AddPartButton'
-import { AddConnectorButton } from './AddConnectorButton'
+import { AddButton } from './AddButton'
 import { PartDataButton } from './PartDataButton'
 import { ExportButton } from './ExportButton'
 import { ViewButton } from './ViewButton'
@@ -20,9 +18,7 @@ export function EditorToolbar() {
 
   return (
     <CladdToolbar size="sm">
-      <AddSubPartButton />
-      <AddPartButton />
-      <AddConnectorButton />
+      <AddButton />
       <PartDataButton />
       <ExportButton />
 
