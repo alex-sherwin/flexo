@@ -10,7 +10,9 @@ export interface Selectable {
  * Click-to-select via raycasting. Selection fires on pointerup only when the
  * pointer barely moved (so camera-orbit drags and gizmo drags don't count as
  * clicks). Resolves the hit object's owning entity from `userData.selectable`
- * and reports it (null when empty space is clicked).
+ * and reports it (null when empty space is clicked). `additive` is true when a
+ * multi-select modifier (Ctrl/Cmd/Shift) was held, so the caller can extend the
+ * selection instead of replacing it.
  */
 export class SelectionManager {
   private readonly raycaster = new THREE.Raycaster()
@@ -22,13 +24,13 @@ export class SelectionManager {
   private readonly camera: THREE.Camera
   private readonly domElement: HTMLElement
   private readonly root: THREE.Object3D
-  private readonly onSelect: (selected: Selectable | null) => void
+  private readonly onSelect: (selected: Selectable | null, additive: boolean) => void
 
   constructor(
     camera: THREE.Camera,
     domElement: HTMLElement,
     root: THREE.Object3D,
-    onSelect: (selected: Selectable | null) => void,
+    onSelect: (selected: Selectable | null, additive: boolean) => void,
   ) {
     this.camera = camera
     this.domElement = domElement
@@ -58,15 +60,16 @@ export class SelectionManager {
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
     this.raycaster.setFromCamera(this.pointer, this.camera)
 
+    const additive = e.metaKey || e.ctrlKey || e.shiftKey
     const hits = this.raycaster.intersectObjects(this.root.children, true)
     for (const hit of hits) {
       const selectable = findSelectable(hit.object)
       if (selectable) {
-        this.onSelect(selectable)
+        this.onSelect(selectable, additive)
         return
       }
     }
-    this.onSelect(null)
+    this.onSelect(null, additive)
   }
 
   dispose(): void {

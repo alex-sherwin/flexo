@@ -13,7 +13,7 @@ import {
   setToolMode,
   type ToolMode,
 } from '../state/editorStore'
-import { $selectedEntity } from '../state/selectors'
+import { $hasSelection } from '../state/selectors'
 
 const MODES: { mode: ToolMode; label: string }[] = [
   { mode: 'translate', label: 'Move' },
@@ -22,16 +22,16 @@ const MODES: { mode: ToolMode; label: string }[] = [
 ]
 
 /**
- * Floating toolbar that appears centered below the main toolbar only while an
- * entity (SubPart or connector) is selected. Holds the transform tool mode
- * (drives the 3D gizmo via $toolMode) plus duplicate/delete, both of which act
- * on whichever entity is selected.
+ * Floating toolbar that appears centered below the main toolbar whenever
+ * anything is selected (one or more SubParts, or a connector). Holds the
+ * transform tool mode (drives the 3D gizmo via $toolMode) plus duplicate/delete,
+ * all of which act on the whole selection.
  */
 export function SelectionToolbar() {
-  const selected = useStore($selectedEntity)
+  const hasSelection = useStore($hasSelection)
   const mode = useStore($toolMode)
 
-  if (!selected) return null
+  if (!hasSelection) return null
 
   return (
     <CladdToolbar size="sm">

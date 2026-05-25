@@ -5,20 +5,29 @@ import { ConnectorObject } from './ConnectorObject'
 import { SelectionManager } from './SelectionManager'
 import { TransformGizmo } from './TransformGizmo'
 import { readPlacementTransform } from './coords'
+import {
+  centroidOf,
+  rotatedAroundOriginTransform,
+  scaledInPlaceTransform,
+  translatedTransform,
+} from './bulkTransform'
 import { initTextureSupport } from './textureSupport'
 import type { CatalogSubPart } from '../ksa/catalog'
-import type { EditingPart } from '../ksa/types'
+import type { EditingPart, Vec3 } from '../ksa/types'
 import {
   $part,
   $selectedConnectorIndex,
-  $selectedIndex,
+  $selectedIndices,
   $snap,
   $toolMode,
   clearSelection,
   pushUndo,
   selectConnector,
   selectPlacement,
+  togglePlacement,
+  updatePlacementTransforms,
   updateSelectedTransform,
+  type PlacementTransform,
 } from '../state/editorStore'
 import { $catalogIndex } from '../state/catalogStore'
 import { $connectorSettings, type ConnectorSettings } from '../state/settingsStore'
@@ -50,8 +59,16 @@ export class EditorScene {
   private readonly unsubscribers: Array<() => void> = []
   private readonly selection: SelectionManager
   private readonly gizmo: TransformGizmo
-  private highlighted: SelectableObject | null = null
-  private attachedGroup: THREE.Group | null = null
+  private highlighted: SelectableObject[] = []
+  private attachedObject: THREE.Object3D | null = null
+  /**
+   * Empty group the gizmo attaches to when 2+ SubParts are selected. Positioned
+   * at the selection centroid with identity rotation/scale; the gizmo drives it
+   * and {@link applyBulkFromPivot} fans the delta out to every selected SubPart.
+   */
+  private readonly pivot = new THREE.Group()
+  /** Per-SubPart starting transforms captured at the start of a bulk gizmo drag. */
+  private bulkSnapshot: { centroid: Vec3; items: { index: number; base: PlacementTransform }[] } | null = null
 
   constructor(host: HTMLElement) {
     this.viewport = new Viewport(host)
@@ -60,20 +77,23 @@ export class EditorScene {
     initTextureSupport(this.viewport.renderer)
     this.root.name = 'flexo-part'
     this.viewport.scene.add(this.root)
+    this.pivot.name = 'bulk-pivot'
+    this.root.add(this.pivot)
 
     this.selection = new SelectionManager(
       this.viewport.camera,
       this.viewport.renderer.domElement,
       this.root,
-      (selected) => {
+      (selected, additive) => {
         if (!selected) {
-          clearSelection()
+          if (!additive) clearSelection()
           return
         }
         if (selected.kind === 'subpart') {
-          selectPlacement(
-            $part.get().placements.findIndex((p) => p.instanceId === selected.id),
-          )
+          const index = $part.get().placements.findIndex((p) => p.instanceId === selected.id)
+          if (index < 0) return
+          if (additive) togglePlacement(index)
+          else selectPlacement(index)
         } else {
           selectConnector($part.get().connectors.findIndex((c) => c.id === selected.id))
         }
@@ -86,9 +106,15 @@ export class EditorScene {
       this.viewport.scene,
       this.viewport.controls,
       {
-        onDragStart: () => pushUndo(),
-        onChange: (object) => updateSelectedTransform(readPlacementTransform(object)),
-        onDraggingChanged: (dragging) => this.selection.setSuppressed(dragging),
+        onDragStart: () => {
+          pushUndo()
+          this.beginBulkDrag()
+        },
+        onChange: (object) => this.handleGizmoChange(object),
+        onDraggingChanged: (dragging) => {
+          this.selection.setSuppressed(dragging)
+          if (!dragging) this.endBulkDrag()
+        },
       },
     )
 
@@ -100,7 +126,7 @@ export class EditorScene {
       }),
     )
     this.unsubscribers.push($part.subscribe((part) => this.reconcile(part)))
-    this.unsubscribers.push($selectedIndex.subscribe(() => this.updateSelection()))
+    this.unsubscribers.push($selectedIndices.subscribe(() => this.updateSelection()))
     this.unsubscribers.push($selectedConnectorIndex.subscribe(() => this.updateSelection()))
     this.unsubscribers.push(
       $connectorSettings.subscribe((settings) => {
@@ -206,33 +232,134 @@ export class EditorScene {
     this.updateSelection()
   }
 
-  /** Resolves the currently selected scene object (SubPart or connector), if built. */
-  private selectedObject(): SelectableObject | null {
+  /** Resolves the currently selected scene objects (SubParts or a connector) that are built. */
+  private selectedObjects(): SelectableObject[] {
     const part = $part.get()
-    const placement = part.placements[$selectedIndex.get()]
-    if (placement) return this.objects.get(placement.instanceId) ?? null
-    const connector = part.connectors[$selectedConnectorIndex.get()]
-    if (connector) return this.connectorObjects.get(connector.id) ?? null
-    return null
+    const conIndex = $selectedConnectorIndex.get()
+    if (conIndex >= 0) {
+      const connector = part.connectors[conIndex]
+      const obj = connector && this.connectorObjects.get(connector.id)
+      return obj ? [obj] : []
+    }
+    const out: SelectableObject[] = []
+    for (const index of $selectedIndices.get()) {
+      const placement = part.placements[index]
+      const obj = placement && this.objects.get(placement.instanceId)
+      if (obj) out.push(obj)
+    }
+    return out
+  }
+
+  /** Centroid of the currently selected SubParts, from store positions (not scene objects). */
+  private selectionCentroid(): Vec3 {
+    const part = $part.get()
+    return centroidOf(
+      $selectedIndices.get().flatMap((i) => {
+        const p = part.placements[i]
+        return p ? [p.position] : []
+      }),
+    )
+  }
+
+  /** Resets the pivot to the selection centroid with identity rotation/scale. */
+  private repositionPivot(): void {
+    const c = this.selectionCentroid()
+    this.pivot.position.set(c.x, c.y, c.z)
+    this.pivot.quaternion.identity()
+    this.pivot.scale.set(1, 1, 1)
   }
 
   /** Syncs the selection highlight and gizmo attachment to the current selection. */
   private updateSelection(): void {
-    const selected = this.selectedObject()
-
-    if (selected !== this.highlighted) {
-      this.highlighted?.setSelected(false)
-      selected?.setSelected(true)
-      this.highlighted = selected
-    }
+    const selected = this.selectedObjects()
+    const next = new Set(selected)
+    for (const obj of this.highlighted) if (!next.has(obj)) obj.setSelected(false)
+    for (const obj of selected) obj.setSelected(true)
+    this.highlighted = selected
 
     // Gizmo attachment — never re-attach mid-drag (it would reset the drag).
     if (this.gizmo.isDragging) return
-    const group = selected?.group ?? null
-    if (group !== this.attachedGroup) {
-      this.gizmo.attach(group)
-      this.attachedGroup = group
+
+    // 2+ SubParts -> attach to the centroid pivot for bulk transforms; otherwise
+    // attach directly to the single selected object (SubPart or connector).
+    const multi = $selectedIndices.get().length > 1
+    let target: THREE.Object3D | null
+    if (multi) {
+      this.repositionPivot()
+      target = this.pivot
+    } else {
+      target = selected[0]?.group ?? null
     }
+    if (target !== this.attachedObject) {
+      this.gizmo.attach(target)
+      this.attachedObject = target
+    }
+  }
+
+  /** Streams a gizmo change back to the store (single entity) or all selected (bulk). */
+  private handleGizmoChange(object: THREE.Object3D): void {
+    if (this.bulkSnapshot) {
+      this.applyBulkFromPivot()
+      return
+    }
+    updateSelectedTransform(readPlacementTransform(object))
+  }
+
+  /** Snapshots the selected SubParts' transforms at the start of a bulk gizmo drag. */
+  private beginBulkDrag(): void {
+    if ($selectedIndices.get().length <= 1) {
+      this.bulkSnapshot = null
+      return
+    }
+    const part = $part.get()
+    const items = $selectedIndices.get().flatMap((index) => {
+      const p = part.placements[index]
+      if (!p) return []
+      return [
+        {
+          index,
+          base: {
+            position: { ...p.position },
+            rotation: { ...p.rotation },
+            scale: { ...p.scale },
+          },
+        },
+      ]
+    })
+    this.bulkSnapshot = { centroid: centroidOf(items.map((i) => i.base.position)), items }
+  }
+
+  /** Applies the pivot's delta (per the active tool mode) to every snapshotted SubPart. */
+  private applyBulkFromPivot(): void {
+    const snap = this.bulkSnapshot
+    if (!snap) return
+    const mode = $toolMode.get()
+    const updates = snap.items.map(({ index, base }) => {
+      if (mode === 'translate') {
+        const delta = {
+          x: this.pivot.position.x - snap.centroid.x,
+          y: this.pivot.position.y - snap.centroid.y,
+          z: this.pivot.position.z - snap.centroid.z,
+        }
+        return { index, transform: translatedTransform(base, delta) }
+      }
+      if (mode === 'rotate') {
+        return {
+          index,
+          transform: rotatedAroundOriginTransform(base, this.pivot.quaternion, snap.centroid),
+        }
+      }
+      const factor = { x: this.pivot.scale.x, y: this.pivot.scale.y, z: this.pivot.scale.z }
+      return { index, transform: scaledInPlaceTransform(base, factor) }
+    })
+    updatePlacementTransforms(updates)
+  }
+
+  /** Ends a bulk drag: drops the snapshot and re-centers the pivot on the new layout. */
+  private endBulkDrag(): void {
+    if (!this.bulkSnapshot) return
+    this.bulkSnapshot = null
+    this.repositionPivot()
   }
 
   dispose(): void {

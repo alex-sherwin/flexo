@@ -1,9 +1,22 @@
 import { useState } from 'react'
 import { useStore } from '@nanostores/react'
-import { Input, Select, Surface } from '@cladd-ui/react'
-import { pushUndo, setConnectorFlags, updateSelectedTransform } from '../state/editorStore'
+import { Button, Input, Select, Surface } from '@cladd-ui/react'
+import {
+  $selectedIndices,
+  pushUndo,
+  setConnectorFlags,
+  updatePlacementTransforms,
+  updateSelectedTransform,
+} from '../state/editorStore'
 import type { PlacementTransform } from '../state/editorStore'
-import { $selectedEntity } from '../state/selectors'
+import { $selectedEntity, $selectedPlacements } from '../state/selectors'
+import {
+  centroidOf,
+  quatFromEulerDeg,
+  rotatedAroundOriginTransform,
+  scaledInPlaceTransform,
+  translatedTransform,
+} from '../three/bulkTransform'
 import { CONNECTOR_FLAGS, type ConnectorFlag } from '../ksa/types'
 
 const RAD2DEG = 180 / Math.PI
@@ -66,7 +79,9 @@ type Axis = 'x' | 'y' | 'z'
  * radians. Connectors additionally expose their connection Flags.
  */
 export function TransformInspector() {
+  const selectedIndices = useStore($selectedIndices)
   const entity = useStore($selectedEntity)
+  if (selectedIndices.length > 1) return <BulkTransformPanel />
   if (!entity) return null
 
   const transform = entity.kind === 'subpart' ? entity.placement : entity.connector
@@ -150,6 +165,112 @@ function SubPartHeader({ instanceId, templateId }: { instanceId: string; templat
       <span className="truncate text-xs text-cladd-fg-softer" title={templateId}>
         {templateId}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Bulk relative-transform panel shown when 2+ SubParts are selected. Each group
+ * applies a delta to EVERY selected SubPart: Move adds the same offset, Scale
+ * multiplies each one's scale in place, and Rotate spins them around the shared
+ * centroid (matching the 3D gizmo). Deltas are committed on Apply (as a single
+ * undo step) and the fields reset afterward so they don't accumulate.
+ */
+function BulkTransformPanel() {
+  const selected = useStore($selectedPlacements)
+
+  const applyMove = (delta: [number, number, number]) => {
+    if (selected.length === 0) return
+    pushUndo()
+    const d = { x: delta[0], y: delta[1], z: delta[2] }
+    updatePlacementTransforms(
+      selected.map(({ index, placement }) => ({ index, transform: translatedTransform(placement, d) })),
+    )
+  }
+
+  const applyRotate = (deg: [number, number, number]) => {
+    if (selected.length === 0) return
+    pushUndo()
+    const deltaQuat = quatFromEulerDeg({ x: deg[0], y: deg[1], z: deg[2] })
+    const origin = centroidOf(selected.map(({ placement }) => placement.position))
+    updatePlacementTransforms(
+      selected.map(({ index, placement }) => ({
+        index,
+        transform: rotatedAroundOriginTransform(placement, deltaQuat, origin),
+      })),
+    )
+  }
+
+  const applyScale = (factor: [number, number, number]) => {
+    if (selected.length === 0) return
+    pushUndo()
+    const f = { x: factor[0], y: factor[1], z: factor[2] }
+    updatePlacementTransforms(
+      selected.map(({ index, placement }) => ({ index, transform: scaledInPlaceTransform(placement, f) })),
+    )
+  }
+
+  return (
+    <Surface outline className="rounded-xl" contentClassName="flex flex-col gap-2 p-2">
+      <span className="font-mono text-sm">{selected.length} SubParts selected</span>
+      <VectorApply title="Move by (m)" defaultValue={[0, 0, 0]} onApply={applyMove} />
+      <VectorApply title="Rotate by (°) around centroid" defaultValue={[0, 0, 0]} onApply={applyRotate} />
+      <VectorApply title="Scale by (×)" defaultValue={[1, 1, 1]} onApply={applyScale} />
+    </Surface>
+  )
+}
+
+/**
+ * Three numeric inputs (X/Y/Z) plus an Apply button. Holds local string drafts
+ * so the user can type freely; on Apply it parses each (falling back to the
+ * default per axis), invokes `onApply`, then resets the drafts to the default.
+ */
+function VectorApply(props: {
+  title: string
+  defaultValue: [number, number, number]
+  onApply: (value: [number, number, number]) => void
+}) {
+  const { title, defaultValue, onApply } = props
+  const initial = defaultValue.map(fmt) as [string, string, string]
+  const [drafts, setDrafts] = useState<[string, string, string]>(initial)
+
+  const setAxis = (axis: number, value: string) => {
+    setDrafts((prev) => {
+      const next = [...prev] as [string, string, string]
+      next[axis] = value
+      return next
+    })
+  }
+
+  const apply = () => {
+    const parsed = drafts.map((s, i) => {
+      const n = Number.parseFloat(s)
+      return Number.isFinite(n) ? n : defaultValue[i]
+    }) as [number, number, number]
+    onApply(parsed)
+    setDrafts(initial)
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs uppercase tracking-wide text-cladd-fg-softer">{title}</span>
+      <div className="flex items-center gap-1">
+        {(['X', 'Y', 'Z'] as const).map((label, i) => (
+          <label key={label} className="flex flex-1 items-center gap-1">
+            <span className="w-3 text-xs text-cladd-fg-softer">{label}</span>
+            <Input
+              size="sm"
+              type="number"
+              value={drafts[i]}
+              inputClassName="font-mono"
+              onChange={(v: string) => setAxis(i, v)}
+            />
+          </label>
+        ))}
+        <Button size="sm" onClick={apply}>
+          Apply
+        </Button>
+      </div>
     </div>
   )
 }
