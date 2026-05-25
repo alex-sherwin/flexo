@@ -3,10 +3,12 @@ import { DOMParser } from '@xmldom/xmldom'
 import { connectorsFromPartElement, parsePartPlacements } from './partXmlParser'
 import { serializePart } from './partXmlSerializer'
 import type { Connector, EditingPart } from './types'
+import { createDefaultLayer, DEFAULT_LAYER_ID } from './types'
 
 const part: EditingPart = {
   partId: 'TestPart',
   editorTags: [],
+  layers: [createDefaultLayer()],
   connectors: [],
   placements: [
     {
@@ -15,6 +17,7 @@ const part: EditingPart = {
       position: { x: 0, y: 0, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
+      layerId: DEFAULT_LAYER_ID,
     },
     {
       instanceId: 'b_1',
@@ -22,6 +25,7 @@ const part: EditingPart = {
       position: { x: 0.1427, y: 0, z: -0.0601 },
       rotation: { x: 3.14159, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
+      layerId: DEFAULT_LAYER_ID,
     },
     {
       instanceId: 'c_1',
@@ -29,6 +33,7 @@ const part: EditingPart = {
       position: { x: -0.02294, y: -0.19896, z: -0.56421 },
       rotation: { x: -0.3876, y: 0.36137, z: 0.71372 },
       scale: { x: 2, y: 2, z: 2 },
+      layerId: DEFAULT_LAYER_ID,
     },
   ],
 }
@@ -70,6 +75,7 @@ describe('connectorsFromPartElement (round-trip with serializer)', () => {
   const withConnectors: EditingPart = {
     partId: 'TestPart',
     editorTags: [],
+    layers: [createDefaultLayer()],
     placements: [],
     connectors: [
       {
@@ -78,6 +84,7 @@ describe('connectorsFromPartElement (round-trip with serializer)', () => {
         rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 2, y: 2, z: 2 },
         flags: 'None',
+        layerId: DEFAULT_LAYER_ID,
       },
       {
         id: '_connector2',
@@ -85,6 +92,7 @@ describe('connectorsFromPartElement (round-trip with serializer)', () => {
         rotation: { x: 3.14159, y: 0, z: 3.14159 },
         scale: { x: 1, y: 1, z: 1 },
         flags: 'None',
+        layerId: DEFAULT_LAYER_ID,
       },
     ],
   }

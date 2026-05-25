@@ -75,6 +75,7 @@ are guarded against placements removed mid-load).
 - [3D workspace](./3d-workspace.md)
 - [SubPart catalog & asset loading](./subpart-catalog.md)
 - [Editor state](./editor-state.md)
+- [Layers](./layers.md)
 - [Coordinate system & transforms](./coordinates.md)
 - [Part XML serialize/parse](./xml-io.md)
 - [Texturing](./texturing.md)

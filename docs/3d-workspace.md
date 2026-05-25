@@ -43,6 +43,14 @@ Async builds (`SubPartObject.create`) load geometry + material in parallel.
 Because the gizmo writes through the store and the scene reconciles from the store,
 the transform [inspector](./editor-state.md) and the gizmo are two-way synced.
 
+## Layer visibility & lock
+
+`EditorScene` subscribes to `$layerView` and `applyLayerVisibility()` sets each
+entity's `group.visible` from its layer's visibility (on reconcile and after async
+builds). A hidden layer renders nothing; three's raycaster also skips
+`visible === false`, so hidden entities are non-clickable. The click-select
+callback additionally rejects hits in a **locked** layer. See [layers.md](./layers.md).
+
 ## Coordinate & transform mapping
 
 All XML/store ↔ three.js transform conversion is isolated in `coords.ts`. See

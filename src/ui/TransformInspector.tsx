@@ -10,6 +10,7 @@ import {
 } from '../state/editorStore'
 import type { PlacementTransform } from '../state/editorStore'
 import { $selectedEntity, $selectedPlacements } from '../state/selectors'
+import { $layerView, isLayerLocked } from '../state/layerStore'
 import {
   centroidOf,
   quatFromEulerDeg,
@@ -39,8 +40,9 @@ function ScalarField(props: {
   onCommit: (n: number) => void
   onInteractionStart: () => void
   label: string
+  disabled?: boolean
 }) {
-  const { value, onCommit, onInteractionStart, label } = props
+  const { value, onCommit, onInteractionStart, label, disabled } = props
   // `draft` is non-null only while the field is focused; otherwise the field
   // shows the live store value (so gizmo drags / undo update it). This avoids a
   // setState-in-effect sync.
@@ -54,6 +56,7 @@ function ScalarField(props: {
         type="number"
         value={draft ?? fmt(value)}
         inputClassName="font-mono"
+        disabled={disabled}
         onChange={(v: string) => {
           setDraft(v)
           const n = Number.parseFloat(v)
@@ -81,9 +84,12 @@ type Axis = 'x' | 'y' | 'z'
 export function TransformInspector() {
   const selectedIndices = useStore($selectedIndices)
   const entity = useStore($selectedEntity)
+  useStore($layerView) // re-render when lock state changes
   if (selectedIndices.length > 1) return <BulkTransformPanel />
   if (!entity) return null
 
+  const layerId = entity.kind === 'subpart' ? entity.placement.layerId : entity.connector.layerId
+  const locked = isLayerLocked(layerId)
   const transform = entity.kind === 'subpart' ? entity.placement : entity.connector
 
   const commit = (mutate: (t: PlacementTransform) => void) => {
@@ -100,6 +106,7 @@ export function TransformInspector() {
     <ScalarField
       label={axis.toUpperCase()}
       value={transform.position[axis]}
+      disabled={locked}
       onInteractionStart={pushUndo}
       onCommit={(n) => commit((t) => (t.position[axis] = n))}
     />
@@ -108,6 +115,7 @@ export function TransformInspector() {
     <ScalarField
       label={axis.toUpperCase()}
       value={transform.rotation[axis] * RAD2DEG}
+      disabled={locked}
       onInteractionStart={pushUndo}
       onCommit={(deg) => commit((t) => (t.rotation[axis] = deg * DEG2RAD))}
     />
@@ -116,6 +124,7 @@ export function TransformInspector() {
     <ScalarField
       label={axis.toUpperCase()}
       value={transform.scale[axis]}
+      disabled={locked}
       onInteractionStart={pushUndo}
       onCommit={(n) => commit((t) => (t.scale[axis] = n))}
     />
@@ -126,7 +135,7 @@ export function TransformInspector() {
       {entity.kind === 'subpart' ? (
         <SubPartHeader instanceId={entity.placement.instanceId} templateId={entity.placement.subPartTemplateId} />
       ) : (
-        <ConnectorHeader index={entity.index} id={entity.connector.id} flags={entity.connector.flags} />
+        <ConnectorHeader index={entity.index} id={entity.connector.id} flags={entity.connector.flags} locked={locked} />
       )}
       <Section title="Position (m)">
         {posField('x')}
@@ -178,6 +187,8 @@ function SubPartHeader({ instanceId, templateId }: { instanceId: string; templat
  */
 function BulkTransformPanel() {
   const selected = useStore($selectedPlacements)
+  useStore($layerView) // re-render when lock state changes
+  const anyLocked = selected.some(({ placement }) => isLayerLocked(placement.layerId))
 
   const applyMove = (delta: [number, number, number]) => {
     if (selected.length === 0) return
@@ -213,9 +224,9 @@ function BulkTransformPanel() {
   return (
     <Surface outline className="rounded-xl" contentClassName="flex flex-col gap-2 p-2">
       <span className="font-mono text-sm">{selected.length} SubParts selected</span>
-      <VectorApply title="Move by (m)" defaultValue={[0, 0, 0]} onApply={applyMove} />
-      <VectorApply title="Rotate by (°) around centroid" defaultValue={[0, 0, 0]} onApply={applyRotate} />
-      <VectorApply title="Scale by (×)" defaultValue={[1, 1, 1]} onApply={applyScale} />
+      <VectorApply title="Move by (m)" defaultValue={[0, 0, 0]} disabled={anyLocked} onApply={applyMove} />
+      <VectorApply title="Rotate by (°) around centroid" defaultValue={[0, 0, 0]} disabled={anyLocked} onApply={applyRotate} />
+      <VectorApply title="Scale by (×)" defaultValue={[1, 1, 1]} disabled={anyLocked} onApply={applyScale} />
     </Surface>
   )
 }
@@ -228,9 +239,10 @@ function BulkTransformPanel() {
 function VectorApply(props: {
   title: string
   defaultValue: [number, number, number]
+  disabled?: boolean
   onApply: (value: [number, number, number]) => void
 }) {
-  const { title, defaultValue, onApply } = props
+  const { title, defaultValue, disabled, onApply } = props
   const initial = defaultValue.map(fmt) as [string, string, string]
   const [drafts, setDrafts] = useState<[string, string, string]>(initial)
 
@@ -267,7 +279,7 @@ function VectorApply(props: {
             />
           </label>
         ))}
-        <Button size="sm" onClick={apply}>
+        <Button size="sm" disabled={disabled} onClick={apply}>
           Apply
         </Button>
       </div>
@@ -275,7 +287,7 @@ function VectorApply(props: {
   )
 }
 
-function ConnectorHeader({ index, id, flags }: { index: number; id: string; flags: ConnectorFlag }) {
+function ConnectorHeader({ index, id, flags, locked }: { index: number; id: string; flags: ConnectorFlag; locked: boolean }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="truncate font-mono text-sm" title={id}>
@@ -289,6 +301,7 @@ function ConnectorHeader({ index, id, flags }: { index: number; id: string; flag
           title="Connector flags"
           options={CONNECTOR_FLAGS as ConnectorFlag[]}
           value={flags}
+          disabled={locked}
           onChange={(v) => setConnectorFlags(index, v as ConnectorFlag)}
         >
           {flags}

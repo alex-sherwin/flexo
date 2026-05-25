@@ -1,12 +1,20 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   $part,
+  $activeLayerId,
   $selectedIndex,
+  $selectedIndices,
   $selectedConnectorIndex,
   $canUndo,
   addConnector,
   addPart,
   addSubPart,
+  createLayer,
+  deleteLayer,
+  renameLayer,
+  reorderLayers,
+  selectLayerEntities,
+  setActiveLayer,
   setEditorTags,
   setPartId,
   duplicateSelected,
@@ -18,6 +26,7 @@ import {
   undo,
   updatePlacementTransform,
 } from './editorStore'
+import { CONNECTOR_LAYER_ID, DEFAULT_LAYER_ID } from '../ksa/types'
 
 beforeEach(() => {
   newPart()
@@ -120,6 +129,7 @@ describe('editorStore', () => {
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 1, y: 1, z: 1 },
           flags: 'ToSurface',
+          layerId: DEFAULT_LAYER_ID,
         },
       ],
       ['Electrical', 'Existing'],
@@ -160,5 +170,119 @@ describe('editorStore', () => {
     // A single undo should revert the whole add (transform update added no step).
     undo()
     expect($part.get().placements.length).toBe(0)
+  })
+})
+
+describe('editorStore layers', () => {
+  it('starts with built-in Default + Connectors layers; Default is active', () => {
+    expect($part.get().layers).toEqual([
+      { id: DEFAULT_LAYER_ID, name: 'Default' },
+      { id: CONNECTOR_LAYER_ID, name: 'Connectors' },
+    ])
+    expect($activeLayerId.get()).toBe(DEFAULT_LAYER_ID)
+  })
+
+  it('createLayer adds a layer, makes it active, and is undoable', () => {
+    const id = createLayer('Engines')
+    expect($part.get().layers.map((l) => l.name)).toEqual(['Default', 'Connectors', 'Engines'])
+    expect($activeLayerId.get()).toBe(id)
+    undo()
+    // Layer removed AND the active layer falls back to Default (it no longer exists).
+    expect($part.get().layers.map((l) => l.name)).toEqual(['Default', 'Connectors'])
+    expect($activeLayerId.get()).toBe(DEFAULT_LAYER_ID)
+  })
+
+  it('SubParts land in the active layer; connectors always in the Connectors layer', () => {
+    const id = createLayer('Engines') // becomes active
+    addSubPart('Core.A')
+    addConnector()
+    expect($part.get().placements[0].layerId).toBe(id)
+    expect($part.get().connectors[0].layerId).toBe(CONNECTOR_LAYER_ID)
+  })
+
+  it('duplicate keeps the source layer (connectors stay in the Connectors layer)', () => {
+    addSubPart('Core.A') // active = Default
+    const engines = createLayer('Engines')
+    addSubPart('Core.C') // in Engines
+    duplicateSelected()
+    const placements = $part.get().placements
+    expect(placements[placements.length - 1].layerId).toBe(engines)
+
+    addConnector() // in Connectors layer
+    duplicateSelected()
+    const connectors = $part.get().connectors
+    expect(connectors[connectors.length - 1].layerId).toBe(CONNECTOR_LAYER_ID)
+  })
+
+  it('renameLayer changes the name and is undoable', () => {
+    const id = createLayer('Engiens')
+    renameLayer(id, 'Engines')
+    expect($part.get().layers.find((l) => l.id === id)?.name).toBe('Engines')
+    undo()
+    expect($part.get().layers.find((l) => l.id === id)?.name).toBe('Engiens')
+  })
+
+  it('deleteLayer with delete-items removes the layer and its entities', () => {
+    const id = createLayer('Scrap')
+    addSubPart('Core.A') // in Scrap
+    setActiveLayer(DEFAULT_LAYER_ID)
+    addSubPart('Core.B') // in Default
+    deleteLayer(id, { mode: 'delete-items' })
+    expect($part.get().layers.map((l) => l.id)).toEqual([DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID])
+    expect($part.get().placements.map((p) => p.subPartTemplateId)).toEqual(['Core.B'])
+    expect($activeLayerId.get()).toBe(DEFAULT_LAYER_ID)
+  })
+
+  it('deleteLayer with move-items reassigns entities to the target layer', () => {
+    const a = createLayer('A')
+    addSubPart('Core.A') // in A
+    const b = createLayer('B')
+    deleteLayer(a, { mode: 'move-items', targetLayerId: b })
+    expect($part.get().placements[0].layerId).toBe(b)
+    expect($part.get().layers.map((l) => l.id)).toEqual([DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID, b])
+  })
+
+  it('deleteLayer is undoable (restores layer + membership)', () => {
+    const id = createLayer('Scrap')
+    addSubPart('Core.A')
+    deleteLayer(id, { mode: 'delete-items' })
+    expect($part.get().placements.length).toBe(0)
+    undo()
+    expect($part.get().layers.map((l) => l.id)).toEqual([DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID, id])
+    expect($part.get().placements[0].layerId).toBe(id)
+  })
+
+  it('refuses to delete the built-in Default and Connectors layers', () => {
+    addSubPart('Core.A')
+    addConnector()
+    deleteLayer(DEFAULT_LAYER_ID, { mode: 'delete-items' })
+    deleteLayer(CONNECTOR_LAYER_ID, { mode: 'delete-items' })
+    expect($part.get().layers.map((l) => l.id)).toEqual([DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID])
+    expect($part.get().placements.length).toBe(1)
+    expect($part.get().connectors.length).toBe(1)
+  })
+
+  it('reorderLayers reorders by id and is undoable', () => {
+    const a = createLayer('A')
+    const b = createLayer('B')
+    reorderLayers([a, DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID, b])
+    expect($part.get().layers.map((l) => l.id)).toEqual([a, DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID, b])
+    undo()
+    expect($part.get().layers.map((l) => l.id)).toEqual([DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID, a, b])
+  })
+
+  it('selectLayerEntities prefers SubParts, else first connector', () => {
+    const id = createLayer('Mixed')
+    addSubPart('Core.A')
+    addSubPart('Core.B')
+    selectLayerEntities(id)
+    expect($selectedIndices.get()).toEqual([0, 1])
+    expect($selectedConnectorIndex.get()).toBe(-1)
+
+    // Connectors live in the built-in Connectors layer; selecting it picks the connector.
+    addConnector()
+    selectLayerEntities(CONNECTOR_LAYER_ID)
+    expect($selectedIndices.get()).toEqual([])
+    expect($selectedConnectorIndex.get()).toBe($part.get().connectors.length - 1)
   })
 })

@@ -32,6 +32,7 @@ import {
 import { $catalogIndex } from '../state/catalogStore'
 import { $connectorSettings, type ConnectorSettings } from '../state/settingsStore'
 import { $cameraSnap, $grids } from '../state/viewStore'
+import { $layerView, isLayerLocked, layerViewState } from '../state/layerStore'
 
 /** A highlightable scene entity — both SubPartObject and ConnectorObject match. */
 interface SelectableObject {
@@ -90,12 +91,18 @@ export class EditorScene {
           return
         }
         if (selected.kind === 'subpart') {
-          const index = $part.get().placements.findIndex((p) => p.instanceId === selected.id)
+          const placements = $part.get().placements
+          const index = placements.findIndex((p) => p.instanceId === selected.id)
           if (index < 0) return
+          if (isLayerLocked(placements[index].layerId)) return // locked layer: not selectable
           if (additive) togglePlacement(index)
           else selectPlacement(index)
         } else {
-          selectConnector($part.get().connectors.findIndex((c) => c.id === selected.id))
+          const connectors = $part.get().connectors
+          const index = connectors.findIndex((c) => c.id === selected.id)
+          if (index < 0) return
+          if (isLayerLocked(connectors[index].layerId)) return // locked layer: not selectable
+          selectConnector(index)
         }
       },
     )
@@ -134,6 +141,7 @@ export class EditorScene {
         this.rebuildConnectors()
       }),
     )
+    this.unsubscribers.push($layerView.subscribe(() => this.applyLayerVisibility()))
     this.unsubscribers.push($toolMode.subscribe((mode) => this.gizmo.setMode(mode)))
     this.unsubscribers.push($snap.subscribe((snap) => this.gizmo.setSnap(snap)))
     this.unsubscribers.push($grids.subscribe((grids) => this.viewport.grids.setConfig(grids)))
@@ -187,6 +195,7 @@ export class EditorScene {
           obj.setPlacement(latest)
           this.root.add(obj.group)
           this.objects.set(placement.instanceId, obj)
+          this.applyLayerVisibility() // respect the layer's visibility for the new object
           this.updateSelection() // highlight/attach if this is the selected one
         })
         .catch((err) => {
@@ -196,7 +205,26 @@ export class EditorScene {
     }
 
     this.reconcileConnectors(part)
+    this.applyLayerVisibility()
     this.updateSelection()
+  }
+
+  /**
+   * Hides/shows each built entity by its layer's visibility (from `$layerView`).
+   * Setting `group.visible = false` also removes it from raycasting, so hidden
+   * layers are neither rendered nor clickable.
+   */
+  private applyLayerVisibility(): void {
+    const part = $part.get()
+    const view = $layerView.get()
+    for (const p of part.placements) {
+      const obj = this.objects.get(p.instanceId)
+      if (obj) obj.group.visible = layerViewState(view, p.layerId).visible
+    }
+    for (const c of part.connectors) {
+      const obj = this.connectorObjects.get(c.id)
+      if (obj) obj.group.visible = layerViewState(view, c.layerId).visible
+    }
   }
 
   /** Connectors build synchronously (cube + arrow), so reconciliation is simple. */
@@ -229,6 +257,7 @@ export class EditorScene {
     }
     this.connectorObjects.clear()
     this.reconcileConnectors($part.get())
+    this.applyLayerVisibility()
     this.updateSelection()
   }
 
@@ -282,9 +311,20 @@ export class EditorScene {
 
     // 2+ SubParts -> attach to the centroid pivot for bulk transforms; otherwise
     // attach directly to the single selected object (SubPart or connector).
-    const multi = $selectedIndices.get().length > 1
+    const indices = $selectedIndices.get()
+    const multi = indices.length > 1
     let target: THREE.Object3D | null
-    if (multi) {
+
+    // Suppress the gizmo when any selected entity is in a locked layer (items
+    // can be selected from the Placed list for inspection but must not be moved).
+    const part = $part.get()
+    const conIndex = $selectedConnectorIndex.get()
+    const anyLocked =
+      indices.some((i) => isLayerLocked(part.placements[i]?.layerId ?? '')) ||
+      (conIndex >= 0 && isLayerLocked(part.connectors[conIndex]?.layerId ?? ''))
+    if (anyLocked) {
+      target = null
+    } else if (multi) {
       this.repositionPivot()
       target = this.pivot
     } else {

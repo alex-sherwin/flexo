@@ -1,6 +1,6 @@
 import { atom, computed } from 'nanostores'
 import type { Connector, ConnectorFlag, EditingPart, EulerXYZ, SubPartPlacement, Vec3 } from '../ksa/types'
-import { createEmptyPart } from '../ksa/types'
+import { BUILT_IN_LAYER_IDS, CONNECTOR_LAYER_ID, createEmptyPart, DEFAULT_LAYER_ID } from '../ksa/types'
 
 /**
  * Framework-agnostic editor state (nanostores). No React / three.js imports —
@@ -41,6 +41,12 @@ export const $selectedIndex = computed($selectedIndices, (indices) =>
 )
 /** Selected connector index, or -1. Mutually exclusive with {@link $selectedIndices}. */
 export const $selectedConnectorIndex = atom<number>(-1)
+/**
+ * The layer new SubParts/connectors are added to. Ephemeral UI state (like
+ * selection) — NOT persisted and NOT in undo history. Always clamped to an
+ * existing layer; falls back to {@link DEFAULT_LAYER_ID}.
+ */
+export const $activeLayerId = atom<string>(DEFAULT_LAYER_ID)
 export const $toolMode = atom<ToolMode>('translate')
 export const $snap = atom<SnapSettings>({})
 export const $canUndo = atom(false)
@@ -50,8 +56,11 @@ export const $canRedo = atom(false)
  * UNDO/REDO INVARIANT — read this before adding or changing any action.
  *
  * History is a snapshot of `$part` only (the serialized document: partId,
- * editorTags, placements, connectors). Selection / toolMode / snap are ephemeral
- * UI state and are deliberately NOT in history (selection is clamped on restore).
+ * editorTags, layers, placements, connectors — including each entity's layerId).
+ * Selection / toolMode / snap / activeLayer are ephemeral UI state and are
+ * deliberately NOT in history (selection + active layer are clamped on restore).
+ * Per-layer visibility/lock is also excluded — it's persisted view state living
+ * in src/state/layerStore.ts, not part of the document.
  *
  * Every action that mutates `$part` MUST enroll in undo using exactly one of two
  * patterns — there is no third option:
@@ -93,6 +102,20 @@ function clampSelection(): void {
   }
 }
 
+/** Resets the active layer to Default if it no longer exists (e.g. after undo). */
+function clampActiveLayer(): void {
+  const part = $part.get()
+  if (!part.layers.some((l) => l.id === $activeLayerId.get())) {
+    $activeLayerId.set(DEFAULT_LAYER_ID)
+  }
+}
+
+/** The active layer id, clamped to a layer that exists in `part`. */
+function currentLayerId(part: EditingPart): string {
+  const active = $activeLayerId.get()
+  return part.layers.some((l) => l.id === active) ? active : DEFAULT_LAYER_ID
+}
+
 /** Snapshot current state onto the undo stack (call before a mutation). */
 export function pushUndo(): void {
   undoStack.push(clone($part.get()))
@@ -107,6 +130,7 @@ export function undo(): void {
   redoStack.push(clone($part.get()))
   $part.set(prev)
   clampSelection()
+  clampActiveLayer()
   refreshHistoryFlags()
 }
 
@@ -116,6 +140,7 @@ export function redo(): void {
   undoStack.push(clone($part.get()))
   $part.set(next)
   clampSelection()
+  clampActiveLayer()
   refreshHistoryFlags()
 }
 
@@ -136,6 +161,7 @@ export function addSubPart(templateId: string): void {
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
+    layerId: currentLayerId(part),
   })
   $part.set(part)
   selectPlacement(part.placements.length - 1)
@@ -146,8 +172,10 @@ export function addSubPart(templateId: string): void {
  * project, preserving each one's position/rotation/scale, along with the Part's
  * connectors (transforms + flags) and editor tags. InstanceIds and connector ids
  * are regenerated so they never collide with entities already in the project; the
- * imported editor tags are unioned into the project's tags. The last added SubPart
- * is selected (or the last connector if the Part has no SubParts).
+ * imported editor tags are unioned into the project's tags. Imported SubParts land
+ * in the active layer; connectors always go to the built-in Connectors layer
+ * (layers are editor-only and absent from KSA XML). The last added SubPart is
+ * selected (or the last connector if the Part has no SubParts).
  */
 export function addPart(
   placements: readonly SubPartPlacement[],
@@ -157,6 +185,7 @@ export function addPart(
   if (placements.length === 0 && connectors.length === 0) return
   pushUndo()
   const part = clone($part.get())
+  const layerId = currentLayerId(part)
   for (const tag of editorTags) {
     if (!part.editorTags.includes(tag)) part.editorTags.push(tag)
   }
@@ -169,6 +198,7 @@ export function addPart(
       position: { ...src.position },
       rotation: { ...src.rotation },
       scale: { ...src.scale },
+      layerId,
     })
   }
   for (const src of connectors) {
@@ -178,6 +208,7 @@ export function addPart(
       rotation: { ...src.rotation },
       scale: { ...src.scale },
       flags: src.flags,
+      layerId: CONNECTOR_LAYER_ID, // connectors always live in the Connectors layer
     })
   }
   $part.set(part)
@@ -185,7 +216,8 @@ export function addPart(
   else selectConnector(part.connectors.length - 1)
 }
 
-/** Adds a connector at the origin (facing local +X) and selects it. */
+/** Adds a connector at the origin (facing local +X) and selects it. Connectors
+ * always belong to the built-in Connectors layer, not the active layer. */
 export function addConnector(): void {
   pushUndo()
   const part = clone($part.get())
@@ -195,6 +227,7 @@ export function addConnector(): void {
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     flags: 'None',
+    layerId: CONNECTOR_LAYER_ID,
   })
   $part.set(part)
   selectConnector(part.connectors.length - 1)
@@ -260,6 +293,7 @@ export function duplicateSelected(): void {
       rotation: { ...srcConnector.rotation },
       scale: { ...srcConnector.scale },
       flags: srcConnector.flags,
+      layerId: srcConnector.layerId,
     })
     $part.set(part)
     selectConnector(part.connectors.length - 1)
@@ -281,6 +315,7 @@ export function duplicateSelected(): void {
       position: { ...src.position },
       rotation: { ...src.rotation },
       scale: { ...src.scale },
+      layerId: src.layerId,
     })
     newIndices.push(part.placements.length - 1)
   }
@@ -410,12 +445,136 @@ export function setEditorTags(editorTags: readonly string[]): void {
   $part.set(part)
 }
 
+// ---------------------------------------------------------------------------
+// Layers
+//
+// Layer *definitions* (the layers[] list) and *membership* (each entity's
+// layerId) are document state, so every mutating layer action below enrolls in
+// undo as a discrete mutation (it calls pushUndo() itself). The active layer is
+// ephemeral and never recorded. Per-layer visibility/lock lives in layerStore.ts.
+// ---------------------------------------------------------------------------
+
+/** Returns the next free "layerN" id (max existing numeric suffix + 1). */
+function nextLayerId(part: EditingPart): string {
+  let max = 0
+  for (const l of part.layers) {
+    const m = /^layer(\d+)$/.exec(l.id)
+    if (m) max = Math.max(max, Number.parseInt(m[1], 10))
+  }
+  return `layer${max + 1}`
+}
+
+/** Creates a layer (name trimmed; blank → "Layer N"), makes it active, returns its id. */
+export function createLayer(name: string): string {
+  pushUndo()
+  const part = clone($part.get())
+  const id = nextLayerId(part)
+  const trimmed = name.trim() || `Layer ${part.layers.length + 1}`
+  part.layers.push({ id, name: trimmed })
+  $part.set(part)
+  $activeLayerId.set(id)
+  return id
+}
+
+/** Renames a layer. No-op when unchanged/blank/unknown. Discrete (commit once). */
+export function renameLayer(id: string, name: string): void {
+  const current = $part.get()
+  const layer = current.layers.find((l) => l.id === id)
+  const trimmed = name.trim()
+  if (!layer || !trimmed || layer.name === trimmed) return
+  pushUndo()
+  const part = clone(current)
+  const target = part.layers.find((l) => l.id === id)!
+  target.name = trimmed
+  $part.set(part)
+}
+
+export interface DeleteLayerOptions {
+  /** 'delete-items' removes the layer's entities; 'move-items' reassigns them. */
+  mode: 'delete-items' | 'move-items'
+  /** Destination layer for 'move-items' (falls back to Default if missing/invalid). */
+  targetLayerId?: string
+}
+
+/**
+ * Deletes a layer. The built-in Default/Connectors layers are protected (no-op).
+ * Entities in the layer are either removed ('delete-items') or moved to another
+ * layer ('move-items').
+ */
+export function deleteLayer(id: string, opts: DeleteLayerOptions): void {
+  if (BUILT_IN_LAYER_IDS.includes(id)) return
+  const current = $part.get()
+  if (!current.layers.some((l) => l.id === id)) return
+  pushUndo()
+  const part = clone(current)
+  if (opts.mode === 'move-items') {
+    const valid = opts.targetLayerId && opts.targetLayerId !== id &&
+      part.layers.some((l) => l.id === opts.targetLayerId)
+    const target = valid ? opts.targetLayerId! : DEFAULT_LAYER_ID
+    for (const p of part.placements) if (p.layerId === id) p.layerId = target
+    for (const c of part.connectors) if (c.layerId === id) c.layerId = target
+  } else {
+    part.placements = part.placements.filter((p) => p.layerId !== id)
+    part.connectors = part.connectors.filter((c) => c.layerId !== id)
+  }
+  part.layers = part.layers.filter((l) => l.id !== id)
+  $part.set(part)
+  if ($activeLayerId.get() === id) $activeLayerId.set(DEFAULT_LAYER_ID)
+  clampSelection()
+}
+
+/** Reorders layers to `orderedIds` (must be a permutation of the existing ids). */
+export function reorderLayers(orderedIds: readonly string[]): void {
+  const current = $part.get()
+  if (orderedIds.length !== current.layers.length) return
+  const ids = new Set(current.layers.map((l) => l.id))
+  if (!orderedIds.every((lid) => ids.has(lid))) return
+  pushUndo()
+  const part = clone(current)
+  const byId = new Map(part.layers.map((l) => [l.id, l] as const))
+  part.layers = orderedIds.map((lid) => byId.get(lid)!)
+  $part.set(part)
+}
+
+/** Sets the active layer (where new items land). No-op for unknown ids. Ephemeral. */
+export function setActiveLayer(id: string): void {
+  if ($part.get().layers.some((l) => l.id === id)) $activeLayerId.set(id)
+}
+
+/**
+ * Selects every entity in a layer. SubPart+connector selection is mutually
+ * exclusive, so this prefers the layer's SubParts (multi-select); only when the
+ * layer has no SubParts does it select its first connector. Clears when empty.
+ */
+export function selectLayerEntities(id: string): void {
+  const part = $part.get()
+  const subIndices = part.placements.flatMap((p, i) => (p.layerId === id ? [i] : []))
+  if (subIndices.length > 0) {
+    setSelectedPlacements(subIndices)
+    return
+  }
+  const conIndex = part.connectors.findIndex((c) => c.layerId === id)
+  if (conIndex >= 0) selectConnector(conIndex)
+  else clearSelection()
+}
+
+/** Drops any selected entities belonging to `layerId` (used when a layer is locked). */
+export function deselectLayer(layerId: string): void {
+  const part = $part.get()
+  const current = $selectedIndices.get()
+  const kept = current.filter((i) => part.placements[i]?.layerId !== layerId)
+  if (kept.length !== current.length) $selectedIndices.set(kept)
+  const ci = $selectedConnectorIndex.get()
+  if (ci >= 0 && part.connectors[ci]?.layerId === layerId) $selectedConnectorIndex.set(-1)
+}
+
 export function newPart(): void {
   undoStack.length = 0
   redoStack.length = 0
   refreshHistoryFlags()
   $part.set(createEmptyPart())
   clearSelection()
+  $activeLayerId.set(DEFAULT_LAYER_ID)
 }
 
 export function setToolMode(mode: ToolMode): void {

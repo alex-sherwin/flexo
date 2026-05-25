@@ -1,7 +1,8 @@
 import { useStore } from '@nanostores/react'
-import { Button, Surface, Tooltip } from '@cladd-ui/react'
+import { Button, Surface, Toolbar as CladdToolbar, Tooltip } from '@cladd-ui/react'
 import { TransformInspector } from './TransformInspector'
 import { PlacementList } from './PlacementList'
+import { LayersButton } from './LayersButton'
 import {
   $inspectorVisible,
   $inspectorWidth,
@@ -85,7 +86,12 @@ export function RightPanel() {
   return (
     <div className="absolute right-3 top-3 bottom-3 flex flex-col gap-2" style={{ width }}>
       <ResizeHandle />
-      <div className="flex shrink-0 justify-end">{toggleButton}</div>
+      <div className="flex shrink-0 items-center gap-2">
+        <CladdToolbar size="sm" className="min-w-0 flex-1" contentClassName="w-full">
+          <LayersButton />
+        </CladdToolbar>
+        {toggleButton}
+      </div>
       <Surface
         outline
         className="flex min-h-0 flex-1 flex-col rounded-xl"

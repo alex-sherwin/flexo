@@ -1,3 +1,4 @@
+import { CONNECTOR_LAYER_ID, DEFAULT_LAYER_ID } from './types'
 import type { Connector, ConnectorFlag, EulerXYZ, SubPartPlacement, Vec3 } from './types'
 
 /**
@@ -51,6 +52,9 @@ export function placementsFromPartElement(part: Element): SubPartPlacement[] {
       position: readVec(transform, 'Position', 0),
       rotation: readVec(transform, 'Rotation', 0) as EulerXYZ,
       scale: readVec(transform, 'Scale', 1),
+      // KSA XML has no layers; placements load into the Default layer. Importing
+      // into the editor reassigns them to the active layer (see addPart).
+      layerId: DEFAULT_LAYER_ID,
     })
   }
   return placements
@@ -77,6 +81,9 @@ export function connectorsFromPartElement(part: Element): Connector[] {
       rotation: readVec(transform, 'Rotation', 0) as EulerXYZ,
       scale: readVec(transform, 'Scale', 1),
       flags: rawFlags && CONNECTOR_FLAG_SET.has(rawFlags) ? rawFlags : 'None',
+      // Connectors live in the built-in Connectors layer (managed separately from
+      // SubPart meshes); importing into the editor keeps them there.
+      layerId: CONNECTOR_LAYER_ID,
     })
   }
   return connectors

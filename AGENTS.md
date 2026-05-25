@@ -30,18 +30,26 @@ Feature docs live in `docs/`. Read the relevant one before working on an area, a
 - [docs/3d-workspace.md](docs/3d-workspace.md) - the three.js viewport, scene reconciliation, selection, transform gizmos, lighting
 - [docs/subpart-catalog.md](docs/subpart-catalog.md) - how SubParts are discovered and how GLB meshes / textures are resolved
 - [docs/editor-state.md](docs/editor-state.md) - nanostores stores + actions, **undo/redo invariant**, two-way binding
+- [docs/layers.md](docs/layers.md) - editor-only layers (graphics-program style): layer definitions + membership are document state (undo-tracked), per-layer visibility/lock are persisted view state; never serialized to KSA XML
 - [docs/state-persistence.md](docs/state-persistence.md) - localStorage persistence for UI settings and user preferences via `@nanostores/persistent`; what to persist and what not to
 - [docs/coordinates.md](docs/coordinates.md) - KSA <-> three.js transform mapping (`coords.ts`) and the `?debug=dockingport` calibration
 - [docs/xml-io.md](docs/xml-io.md) - Part XML serialize/parse, `formatG6`, transform omission rules
 - [docs/texturing.md](docs/texturing.md) - KTX2 (BC7/BC5/BC4) loading, PBR material mapping, normal-map shader patch, IBL/tonemapping
 - [docs/asset-pipeline.md](docs/asset-pipeline.md) - `/ksa/` dev serving AND what must be done to bundle models/textures into `pnpm build`
 
+# project constitution
+
+- MUST ensure the project code remains clean, well structure and well architected
+- MUST ensure architecture aligns with the general concept of a 3d editor / graphics editor workflow that is tailor made for KSA game Part creation
+
+
+
 # repository maintenance
 
 - AGENTS.md MUST be maintained with up to date references to repository areas
 - when a feature changes, update its corresponding file in `docs/` (and add a new `docs/*.md` + link above for any new major feature)
 - **Default pattern for state**: Any user-facing settings, UI panel visibility, tool modes, or view preferences SHOULD use localStorage persistence via `@nanostores/persistent` (see [state-persistence.md](docs/state-persistence.md)). By default, persist state unless there's a specific reason not to.
-- **Undo/redo MUST be maintained**: the editor has snapshot-based undo/redo over `$part` (the serialized document). When you add, remove, or change any feature that mutates the document (`$part`: `partId`, `editorTags`, `placements`, `connectors`), it MUST enroll in undo/redo via one of the two patterns documented in [editor-state.md](docs/editor-state.md#undoredo-invariant-must-maintain) and at the top of the undo/redo section in `src/state/editorStore.ts`: (1) **discrete** mutations call `pushUndo()` internally; (2) **streaming** mutations (gizmo drag / typing session) let the caller push once at interaction start. Ephemeral UI state (selection, tool mode, snap) is intentionally excluded. A document mutator that enrolls in neither pattern silently bypasses undo — that is a bug. Add/extend a test in `src/state/editorStore.test.ts` for the new mutation's undo behavior.
+- **Undo/redo MUST be maintained**: the editor has snapshot-based undo/redo over `$part` (the serialized document). When you add, remove, or change any feature that mutates the document (`$part`: `partId`, `editorTags`, `layers`, `placements`, `connectors` — including each entity's `layerId`), it MUST enroll in undo/redo via one of the two patterns documented in [editor-state.md](docs/editor-state.md#undoredo-invariant-must-maintain) and at the top of the undo/redo section in `src/state/editorStore.ts`: (1) **discrete** mutations call `pushUndo()` internally; (2) **streaming** mutations (gizmo drag / typing session) let the caller push once at interaction start. Ephemeral UI state (selection, tool mode, snap, active layer) and persisted view state (per-layer visibility/lock in `layerStore.ts`) are intentionally excluded. A document mutator that enrolls in neither pattern silently bypasses undo — that is a bug. Add/extend a test in `src/state/editorStore.test.ts` for the new mutation's undo behavior.
 
 # glossary
 

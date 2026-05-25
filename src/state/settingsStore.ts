@@ -15,7 +15,7 @@ export interface ConnectorSettings {
   size: number
 }
 
-export const $connectorSettings = persistentJSON<ConnectorSettings>('flexo:connectorSettings', { size: 0.25 })
+export const $connectorSettings = persistentJSON<ConnectorSettings>('flexo:connectorSettings', { size: 0.125 })
 
 export function setConnectorSettings(patch: Partial<ConnectorSettings>): void {
   $connectorSettings.set({ ...$connectorSettings.get(), ...patch })

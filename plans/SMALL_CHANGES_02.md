@@ -1,0 +1,8 @@
+- use lucide-react for SVG icons everywhere, remove custom <svg> for icon svgs, replace the current custom svgs with:
+  - custom EyeIcon to lucide Eye
+  - custom EyeOffIcon to lucide EyeOff
+  - custom LockIcon to lucide Lock
+  - custom UnlockIcon to lucide LockOpen
+- on the main Toolbar lets consolidate the "+" buttons for SubPart, Part and Connector into a single "+ Add" button which shows a Popover which has three buttons in a vertically aligned sheet for the existing buttons that just say "SubPart", "Connector" and "Import built-in Part".  This should use the Cladd pattern of having a <List> with a <ListTitle> for the surface and <ListButton>'s for the buttons. use lucide "CirclePlus" icon for this.
+- change the Layers popover to have a heading at the top like other Cladd popovers that use a ListTitle
+- all layers should be unlocked by default

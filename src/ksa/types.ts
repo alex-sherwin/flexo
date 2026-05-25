@@ -37,6 +37,8 @@ export interface SubPartPlacement extends Transform {
   instanceId: string
   /** Catalog SubPart template id, e.g. "CoreStructuralA_Subpart_TrussBarA". */
   subPartTemplateId: string
+  /** Id of the {@link Layer} this placement belongs to (editor-only grouping). */
+  layerId: string
 }
 
 /**
@@ -59,7 +61,46 @@ export interface Connector extends Transform {
   id: string
   /** Connection behavior flag. */
   flags: ConnectorFlag
+  /** Id of the {@link Layer} this connector belongs to (editor-only grouping). */
+  layerId: string
 }
+
+/**
+ * An editor-only grouping of placements/connectors, like a graphics program's
+ * layers. Layers organize the workspace (visibility, locking, bulk selection)
+ * but have NO representation in KSA XML — they are never serialized to export.
+ * Layer *membership* and *definitions* are document state (in {@link EditingPart},
+ * undo-tracked); per-layer *visibility/lock* is ephemeral view state persisted to
+ * localStorage (see src/state/layerStore.ts).
+ */
+export interface Layer {
+  /** Stable unique id; the built-in layer uses {@link DEFAULT_LAYER_ID}. */
+  id: string
+  /** User-facing label, e.g. "Default", "Engines". */
+  name: string
+}
+
+/** Id of the built-in "Default" layer. It always exists and cannot be deleted. */
+export const DEFAULT_LAYER_ID = 'default'
+
+/**
+ * Id of the built-in "Connectors" layer. Connectors are always added here so they
+ * can be hidden/locked/managed separately from SubPart meshes. Cannot be deleted.
+ */
+export const CONNECTOR_LAYER_ID = 'connectors'
+
+/** The built-in Default layer (for SubParts) that every new Part starts with. */
+export function createDefaultLayer(): Layer {
+  return { id: DEFAULT_LAYER_ID, name: 'Default' }
+}
+
+/** The built-in Connectors layer that every new Part starts with. */
+export function createConnectorLayer(): Layer {
+  return { id: CONNECTOR_LAYER_ID, name: 'Connectors' }
+}
+
+/** The built-in layers present in every Part (and never deletable). */
+export const BUILT_IN_LAYER_IDS: readonly string[] = [DEFAULT_LAYER_ID, CONNECTOR_LAYER_ID]
 
 /**
  * The editor tags KSA's Core data uses to bucket parts in the in-game part
@@ -89,6 +130,8 @@ export interface EditingPart {
   partId: string
   /** Optional editor tags emitted as <EditorTag Value="..."/> in the Assets <Part>. */
   editorTags: string[]
+  /** Editor-only layers; array order is the display order. Always includes Default. */
+  layers: Layer[]
   /** All placed SubPart instances. */
   placements: SubPartPlacement[]
   /** All connector attachment points. */
@@ -96,5 +139,11 @@ export interface EditingPart {
 }
 
 export function createEmptyPart(): EditingPart {
-  return { partId: 'fixme_part_id', editorTags: [], placements: [], connectors: [] }
+  return {
+    partId: 'fixme_part_id',
+    editorTags: [],
+    layers: [createDefaultLayer(), createConnectorLayer()],
+    placements: [],
+    connectors: [],
+  }
 }

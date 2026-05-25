@@ -8,11 +8,16 @@ the 3D scene subscribes with vanilla `subscribe()`, React reads via
 
 | Atom | Type | Meaning |
 |---|---|---|
-| `$part` | `EditingPart` | The whole part: `partId`, `editorTags`, `placements[]`. Treated as **immutable** — every mutation replaces it with a fresh object (so subscribers fire). |
-| `$selectedIndex` | `number` | Index into `placements`, or `-1`. |
+| `$part` | `EditingPart` | The whole part: `partId`, `editorTags`, `layers[]`, `placements[]`, `connectors[]` (each placement/connector carries a `layerId`). Treated as **immutable** — every mutation replaces it with a fresh object (so subscribers fire). |
+| `$selectedIndices` / `$selectedIndex` | `number[]` / `number` | SubPart selection (multi); `$selectedIndex` is the primary (last) one or `-1`. |
+| `$selectedConnectorIndex` | `number` | Selected connector, or `-1`. Mutually exclusive with SubPart selection. |
+| `$activeLayerId` | `string` | Layer new items land in. Ephemeral (not persisted, not undone); clamped to a live layer. See [layers.md](./layers.md). |
 | `$toolMode` | `'translate'\|'rotate'\|'scale'` | Drives the 3D gizmo. |
 | `$snap` | `{ translate?, rotateDeg? }` | Grid / rotation snap (0/undefined = off). |
 | `$canUndo` / `$canRedo` | `boolean` | For toolbar button enablement. |
+
+Per-layer **visibility/lock** is NOT in `$part` — it's persisted view state in
+`src/state/layerStore.ts` (`$layerView`). See [layers.md](./layers.md).
 
 Undo/redo stacks are module-private arrays (depth 50), not atoms.
 
@@ -31,14 +36,18 @@ Conventions:
 
 ### Undo/redo invariant (must maintain)
 
-History snapshots **`$part` only** (the serialized document). Selection, `$toolMode`
-and `$snap` are ephemeral UI and are intentionally excluded; selection is *clamped*
-(not restored) after undo/redo. Every action that mutates `$part` MUST enroll in
-undo via exactly one of two patterns:
+History snapshots **`$part` only** (the serialized document: `partId`, `editorTags`,
+`layers`, `placements`, `connectors`, incl. each entity's `layerId`). Selection,
+`$toolMode`, `$snap` and `$activeLayerId` are ephemeral UI and are intentionally
+excluded; selection + active layer are *clamped* (not restored) after undo/redo.
+Per-layer visibility/lock is also excluded (it's persisted view state in
+`layerStore.ts`). Every action that mutates `$part` MUST enroll in undo via exactly
+one of two patterns:
 
 1. **Discrete** (one gesture = one change): the action calls `pushUndo()` itself.
    `addSubPart`, `addPart`, `addConnector`, `removeSelected`, `duplicateSelected`,
-   `setConnectorFlags`, `setEditorTags`.
+   `setConnectorFlags`, `setEditorTags`, and the layer mutators `createLayer`,
+   `renameLayer`, `deleteLayer`, `reorderLayers` (see [layers.md](./layers.md)).
 2. **Streaming** (rapid updates that collapse to one step — a gizmo drag or a typing
    session): the action does **not** push; the caller pushes once at interaction
    start (gizmo drag-start; field focus). `updatePlacementTransform(s)`,
@@ -70,6 +79,7 @@ Rotation is shown in **degrees**, stored/exported in **radians**.
 - `TransformInspector.tsx` — numeric position/rotation/scale (two-way bound).
 - `Toolbar.tsx` — tool mode (Segmented), snap (NumberField), undo/redo.
 - `PartHeader.tsx` — Part id field + Export XML dialog (see [xml-io.md](./xml-io.md)).
+- `LayersButton.tsx` / `LayersPanel.tsx` — sidebar Layers popover (see [layers.md](./layers.md)).
 
 ## Persistence
 

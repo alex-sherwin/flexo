@@ -3,7 +3,7 @@ import { DOMParser } from '@xmldom/xmldom'
 import type { Document as XmlDocument, Element as XmlElement } from '@xmldom/xmldom'
 import { serializeGameData, serializePart } from './partXmlSerializer'
 import type { Connector, EditingPart, SubPartPlacement } from './types'
-import { EULER_ZERO, VEC3_ONE, VEC3_ZERO } from './types'
+import { createDefaultLayer, DEFAULT_LAYER_ID, EULER_ZERO, VEC3_ONE, VEC3_ZERO } from './types'
 
 function placement(p: Partial<SubPartPlacement>): SubPartPlacement {
   return {
@@ -12,6 +12,7 @@ function placement(p: Partial<SubPartPlacement>): SubPartPlacement {
     position: { ...VEC3_ZERO },
     rotation: { ...EULER_ZERO },
     scale: { ...VEC3_ONE },
+    layerId: DEFAULT_LAYER_ID,
     ...p,
   }
 }
@@ -41,6 +42,7 @@ describe('serializePart', () => {
   const part: EditingPart = {
     partId: 'CoreCouplingA_Prefab_DockingPort1WA',
     editorTags: [],
+    layers: [createDefaultLayer()],
     connectors: [],
     placements: [
       placement({
@@ -126,6 +128,7 @@ function connector(c: Partial<Connector>): Connector {
     rotation: { ...EULER_ZERO },
     scale: { ...VEC3_ONE },
     flags: 'None',
+    layerId: DEFAULT_LAYER_ID,
     ...c,
   }
 }
@@ -134,6 +137,7 @@ describe('serializePart connectors', () => {
   const part: EditingPart = {
     partId: 'P',
     editorTags: [],
+    layers: [createDefaultLayer()],
     placements: [],
     connectors: [
       connector({ id: '_connector1' }), // identity
@@ -173,6 +177,7 @@ describe('serializeGameData', () => {
   const part: EditingPart = {
     partId: 'P',
     editorTags: [],
+    layers: [createDefaultLayer()],
     placements: [],
     connectors: [
       connector({ id: '_connector1', flags: 'None' }),

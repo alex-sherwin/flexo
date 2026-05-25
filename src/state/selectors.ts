@@ -1,6 +1,6 @@
 import { computed } from 'nanostores'
-import { $part, $selectedConnectorIndex, $selectedIndices } from './editorStore'
-import type { Connector, SubPartPlacement } from '../ksa/types'
+import { $activeLayerId, $part, $selectedConnectorIndex, $selectedIndices } from './editorStore'
+import type { Connector, Layer, SubPartPlacement } from '../ksa/types'
 
 /** The currently selected placement when exactly one SubPart is selected, else null. */
 export const $selectedPlacement = computed(
@@ -52,4 +52,39 @@ export const $selectedEntity = computed(
     if (conIndex >= 0 && connector) return { kind: 'connector', index: conIndex, connector }
     return null
   },
+)
+
+/**
+ * A layer paired with how many SubParts + connectors belong to it. `id` mirrors
+ * `layer.id` so the object can be used directly as a react-aria collection item
+ * (the collection builder reads `item.id`/`item.key` to determine the row key).
+ */
+export interface LayerSummary {
+  id: string
+  layer: Layer
+  subParts: number
+  connectors: number
+}
+
+/** Every layer (in display order) with its SubPart/connector counts. */
+export const $layerSummaries = computed(
+  [$part],
+  (part): LayerSummary[] => {
+    const subCounts = new Map<string, number>()
+    const conCounts = new Map<string, number>()
+    for (const p of part.placements) subCounts.set(p.layerId, (subCounts.get(p.layerId) ?? 0) + 1)
+    for (const c of part.connectors) conCounts.set(c.layerId, (conCounts.get(c.layerId) ?? 0) + 1)
+    return part.layers.map((layer) => ({
+      id: layer.id,
+      layer,
+      subParts: subCounts.get(layer.id) ?? 0,
+      connectors: conCounts.get(layer.id) ?? 0,
+    }))
+  },
+)
+
+/** The active layer object (where new items land), or null if none resolves. */
+export const $activeLayer = computed(
+  [$part, $activeLayerId],
+  (part, activeId): Layer | null => part.layers.find((l) => l.id === activeId) ?? null,
 )
