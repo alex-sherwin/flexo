@@ -5,7 +5,9 @@ import {
   $selectedConnectorIndex,
   $canUndo,
   addConnector,
+  addPart,
   addSubPart,
+  setEditorTags,
   duplicateSelected,
   removeSelected,
   newPart,
@@ -103,6 +105,26 @@ describe('editorStore', () => {
     expect($part.get().connectors[0].flags).toBe('ToSurface')
     undo()
     expect($part.get().connectors[0].flags).toBe('None')
+  })
+
+  it('addPart imports connector flags and unions editor tags into the project', () => {
+    setEditorTags(['Existing'])
+    addPart(
+      [],
+      [
+        {
+          id: '_connector1',
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          flags: 'ToSurface',
+        },
+      ],
+      ['Electrical', 'Existing'],
+    )
+    expect($part.get().connectors[0].flags).toBe('ToSurface')
+    // 'Existing' kept, 'Electrical' added, no duplicate.
+    expect($part.get().editorTags).toEqual(['Existing', 'Electrical'])
   })
 
   it('updatePlacementTransform does not create an undo step', () => {

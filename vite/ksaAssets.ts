@@ -35,6 +35,10 @@ const CATALOG_XML = [
   'PartAssets.xml',
 ]
 
+// Sibling *GameData.xml files (connector flags + editor tags). Not every asset
+// file has one; missing siblings are skipped silently. See src/ksa/partCatalog.ts.
+const GAMEDATA_XML = CATALOG_XML.map((f) => f.replace(/Assets\.xml$/, 'GameData.xml'))
+
 // PbrMaterial child elements the app actually loads (see src/ksa/catalog.ts).
 const TEXTURE_ELEMENTS = ['Diffuse', 'Normal', 'AoRoughMetal', 'Emissive']
 
@@ -101,6 +105,10 @@ export function ksaAssets(): Plugin {
 
       // Catalog XML (the app fetches these by name) + only the GLB/KTX2 they reference.
       for (const file of CATALOG_XML) copy(file)
+      // GameData siblings — copy only those that exist (most asset files lack one).
+      for (const file of GAMEDATA_XML) {
+        if (existsSync(join(srcRoot, file))) copy(file)
+      }
       for (const rel of collectReferencedAssets(srcRoot)) copy(rel)
     },
     configureServer(server) {

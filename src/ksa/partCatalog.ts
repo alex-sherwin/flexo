@@ -9,8 +9,8 @@
  */
 
 import { ASSET_FILES, toUrl } from './catalog'
-import { connectorsFromPartElement, placementsFromPartElement } from './partXmlParser'
-import type { Connector, SubPartPlacement } from './types'
+import { connectorsFromPartElement, directChildren, placementsFromPartElement } from './partXmlParser'
+import type { Connector, ConnectorFlag, SubPartPlacement } from './types'
 
 export interface CatalogPart {
   /** Part id as declared in the Assets XML, e.g. "CoreFuelTankA_Prefab_LF1W1HA". */
@@ -23,14 +23,6 @@ export interface CatalogPart {
   connectors: Connector[]
   /** Originating XML file (for debugging / grouping). */
   sourceFile: string
-}
-
-function directChildren(parent: Element, tag: string): Element[] {
-  const out: Element[] = []
-  for (const node of Array.from(parent.childNodes)) {
-    if (node.nodeType === 1 && (node as Element).tagName === tag) out.push(node as Element)
-  }
-  return out
 }
 
 export function parsePartsFile(doc: Document, sourceFile: string, out: CatalogPart[]): void {
@@ -47,29 +39,107 @@ export function parsePartsFile(doc: Document, sourceFile: string, out: CatalogPa
   }
 }
 
-/** Fetches and parses every Core asset file into a sorted Part catalog. */
-export async function loadCorePartCatalog(): Promise<CatalogPart[]> {
-  const out: CatalogPart[] = []
+/**
+ * Game-data carried in the sibling *GameData.xml files: editor tags and connector
+ * flags, both keyed by Part id. In KSA's Core data these live on <PartGameData>,
+ * NOT on the geometry <Part> — so without merging them the importer drops both
+ * the editor tags and the connector <Flags> (e.g. ToSurface on solar panels).
+ */
+export interface PartGameData {
+  editorTags: string[]
+  /** connector id -> flag (only non-'None' flags are recorded). */
+  connectorFlags: Map<string, ConnectorFlag>
+}
+
+const CONNECTOR_FLAG_SET = new Set<ConnectorFlag>(['Internal', 'ToSurface', 'FromSurface'])
+
+/** GameData sibling of each catalog asset file (e.g. CoreElectricalAAssets.xml -> CoreElectricalAGameData.xml). Not every asset file has one. */
+const GAMEDATA_FILES = ASSET_FILES.map((f) => f.replace(/Assets\.xml$/, 'GameData.xml'))
+
+/** Parses <PartGameData> entries (editor tags + connector flags) keyed by Part id. */
+export function parseGameDataFile(doc: Document, out: Map<string, PartGameData>): void {
+  for (const gd of Array.from(doc.getElementsByTagName('PartGameData'))) {
+    const id = gd.getAttribute('Id')
+    if (!id) continue
+    const entry: PartGameData = out.get(id) ?? { editorTags: [], connectorFlags: new Map() }
+    for (const tag of directChildren(gd, 'EditorTag')) {
+      const v = tag.getAttribute('Value')
+      if (v && !entry.editorTags.includes(v)) entry.editorTags.push(v)
+    }
+    for (const conn of directChildren(gd, 'Connector')) {
+      const connId = conn.getAttribute('Id')
+      if (!connId) continue
+      const raw = directChildren(conn, 'Flags')[0]?.textContent?.trim() as ConnectorFlag | undefined
+      if (raw && CONNECTOR_FLAG_SET.has(raw)) entry.connectorFlags.set(connId, raw)
+    }
+    out.set(id, entry)
+  }
+}
+
+async function loadGameData(): Promise<Map<string, PartGameData>> {
+  const out = new Map<string, PartGameData>()
   await Promise.all(
-    ASSET_FILES.map(async (file) => {
+    GAMEDATA_FILES.map(async (file) => {
       try {
         const res = await fetch(toUrl(file))
-        if (!res.ok) {
-          console.warn(`partCatalog: failed to fetch ${file}: ${res.status}`)
-          return
-        }
+        if (!res.ok) return // many asset files have no GameData sibling — expected
         const text = await res.text()
         const doc = new DOMParser().parseFromString(text, 'application/xml')
         if (doc.getElementsByTagName('parsererror').length > 0) {
           console.warn(`partCatalog: parse error in ${file}`)
           return
         }
-        parsePartsFile(doc, file, out)
+        parseGameDataFile(doc, out)
       } catch (err) {
         console.warn(`partCatalog: error loading ${file}`, err)
       }
     }),
   )
+  return out
+}
+
+/** Merges parsed game-data into catalog parts: unions editor tags and applies connector flags by id. */
+export function mergeGameData(parts: CatalogPart[], gameData: Map<string, PartGameData>): void {
+  for (const part of parts) {
+    const gd = gameData.get(part.id)
+    if (!gd) continue
+    for (const tag of gd.editorTags) {
+      if (!part.editorTags.includes(tag)) part.editorTags.push(tag)
+    }
+    for (const conn of part.connectors) {
+      const flag = gd.connectorFlags.get(conn.id)
+      if (flag) conn.flags = flag
+    }
+  }
+}
+
+/** Fetches and parses every Core asset file into a sorted Part catalog. */
+export async function loadCorePartCatalog(): Promise<CatalogPart[]> {
+  const out: CatalogPart[] = []
+  const [, gameData] = await Promise.all([
+    Promise.all(
+      ASSET_FILES.map(async (file) => {
+        try {
+          const res = await fetch(toUrl(file))
+          if (!res.ok) {
+            console.warn(`partCatalog: failed to fetch ${file}: ${res.status}`)
+            return
+          }
+          const text = await res.text()
+          const doc = new DOMParser().parseFromString(text, 'application/xml')
+          if (doc.getElementsByTagName('parsererror').length > 0) {
+            console.warn(`partCatalog: parse error in ${file}`)
+            return
+          }
+          parsePartsFile(doc, file, out)
+        } catch (err) {
+          console.warn(`partCatalog: error loading ${file}`, err)
+        }
+      }),
+    ),
+    loadGameData(),
+  ])
+  mergeGameData(out, gameData)
   out.sort((a, b) => a.id.localeCompare(b.id))
   console.info(`flexo part catalog: ${out.length} Parts loaded`)
   return out

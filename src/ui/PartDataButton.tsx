@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useStore } from '@nanostores/react'
 import { Input, Popup, PopupContent, SectionTitle, ToolbarButton } from '@cladd-ui/react'
-import { $part, setPartId } from '../state/editorStore'
+import { $part, setEditorTags, setPartId } from '../state/editorStore'
+import { EditorTagsField } from './EditorTagsField'
 
 /**
  * Top-surface "Part Data" action: opens a Popup with the Part-level metadata
@@ -30,6 +31,9 @@ export function PartDataButton() {
             placeholder="part_id"
             className="mt-2"
           />
+
+          <SectionTitle className="mt-4">Editor Tags</SectionTitle>
+          <EditorTagsField tags={part.editorTags} onChange={setEditorTags} />
         </PopupContent>
       </Popup>
     </>

@@ -54,6 +54,26 @@ keeps export byte-compatible. **Never** write raw `toString()`/`toFixed()` into 
 optional `parserImpl` lets tests inject `@xmldom/xmldom`'s `DOMParser`; the browser
 uses the global `DOMParser`.
 
+## Part catalog & GameData merge — `src/ksa/partCatalog.ts`
+
+The "+ Part" importer builds its catalog from the Core `*Assets.xml` files, but in
+KSA's Core data the geometry `<Part>` carries **no** connector `<Flags>` and (mostly)
+no `<EditorTag>` — those live in the sibling `*GameData.xml` files under
+`<PartGameData Id="…">`. So `loadCorePartCatalog()` also fetches each
+`<name>GameData.xml` (derived from the asset filename; missing siblings are skipped
+silently) and `mergeGameData()` folds them into each `CatalogPart`:
+
+- connector `<Flags>` (`ToSurface`/`FromSurface`/`Internal`) are applied to the
+  matching connector by `Id` (geometry is the source of truth — flags-only
+  connectors with no geometry counterpart are ignored);
+- `<EditorTag Value="…">` values are unioned into `editorTags`.
+
+`addPart(placements, connectors, editorTags)` then unions the imported editor tags
+into the current project. Without this merge the `ToSurface` flag (e.g. on solar
+panels) and most editor tags were dropped on import. The vite dev server streams the
+GameData files under `/ksa/`; `vite/ksaAssets.ts` copies the existing ones into
+`dist/ksa/` for production.
+
 ## Export UI
 
 `src/ui/PartHeader.tsx`: a Part-id field (`setPartId`) + an "Export XML" button that

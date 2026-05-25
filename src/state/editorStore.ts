@@ -108,17 +108,22 @@ export function addSubPart(templateId: string): void {
 /**
  * Imports a whole Part by appending all of its SubPart instances to the current
  * project, preserving each one's position/rotation/scale, along with the Part's
- * connectors (transforms + flags). InstanceIds and connector ids are regenerated
- * so they never collide with entities already in the project. The last added
- * SubPart is selected (or the last connector if the Part has no SubParts).
+ * connectors (transforms + flags) and editor tags. InstanceIds and connector ids
+ * are regenerated so they never collide with entities already in the project; the
+ * imported editor tags are unioned into the project's tags. The last added SubPart
+ * is selected (or the last connector if the Part has no SubParts).
  */
 export function addPart(
   placements: readonly SubPartPlacement[],
   connectors: readonly Connector[] = [],
+  editorTags: readonly string[] = [],
 ): void {
   if (placements.length === 0 && connectors.length === 0) return
   pushUndo()
   const part = clone($part.get())
+  for (const tag of editorTags) {
+    if (!part.editorTags.includes(tag)) part.editorTags.push(tag)
+  }
   for (const src of placements) {
     const base = lastSegmentLower(src.subPartTemplateId)
     const count = part.placements.filter((p) => p.subPartTemplateId === src.subPartTemplateId).length
@@ -295,6 +300,12 @@ export function updateSelectedTransform(t: PlacementTransform): void {
 export function setPartId(partId: string): void {
   const part = clone($part.get())
   part.partId = partId
+  $part.set(part)
+}
+
+export function setEditorTags(editorTags: readonly string[]): void {
+  const part = clone($part.get())
+  part.editorTags = [...editorTags]
   $part.set(part)
 }
 

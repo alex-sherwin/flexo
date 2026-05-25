@@ -61,6 +61,28 @@ export interface Connector extends Transform {
   flags: ConnectorFlag
 }
 
+/**
+ * The editor tags KSA's Core data uses to bucket parts in the in-game part
+ * picker. Offered as suggestions in the Part Data dialog, but free-form custom
+ * values are also allowed (KSA registers any tag string it sees).
+ */
+export const KNOWN_EDITOR_TAGS: readonly string[] = [
+  'Capsules',
+  'Cargo',
+  'Coupling',
+  'Electrical',
+  'Engines',
+  'Fuel Tanks',
+  'Hidden',
+  'Interstage',
+  'Lights',
+  'Passage',
+  'Radial',
+  'RCS',
+  'Structural',
+  'Tanks',
+]
+
 /** The full Part being assembled in the editor. */
 export interface EditingPart {
   /** Part id used in the exported XML (must be unique), e.g. "fixme_part_id". */

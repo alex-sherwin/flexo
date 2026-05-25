@@ -79,7 +79,7 @@ function BrowserBody({ onClose }: { onClose: () => void }) {
 
   const add = () => {
     if (!selected) return
-    addPart(selected.placements, selected.connectors)
+    addPart(selected.placements, selected.connectors, selected.editorTags)
     setAdded((n) => n + 1)
   }
 
